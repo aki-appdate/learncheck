@@ -44,6 +44,28 @@ export function checkQuestion(q: GeneratedQuestion, material: string): { quote: 
 }
 
 /**
+ * 選択肢を直したのに、解説が直す前の選択肢の文言を「」で引いたままになっているか。
+ * 直す前の選択肢のどれかと同じ文で、今の選択肢のどれとも違うものを返す（直す画面で注意を出す）
+ */
+export function staleExplanationQuotes(before: Pick<GeneratedQuestion, "choices">, after: Pick<GeneratedQuestion, "explanation" | "choices">): string[] {
+  const norm = (t: string) => normalize(t.trim().replace(/[。、]$/, "")).text;
+  const old = new Set(before.choices.map(norm));
+  const now = new Set(after.choices.map(norm));
+  return quotedSpans(after.explanation).filter((t) => old.has(norm(t)) && !now.has(norm(t)));
+}
+
+/** 「」で囲まれた部分をすべて取り出す。選択肢の中に「LC-5000」のような入れ子のかっこがあっても、外側ごと取り出す */
+function quotedSpans(text: string): string[] {
+  const spans: string[] = [];
+  const opens: number[] = [];
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] === "「") opens.push(i);
+    else if (text[i] === "」" && opens.length) spans.push(text.slice(opens.pop()! + 1, i));
+  }
+  return spans;
+}
+
+/**
  * 選択肢の中の「言葉」（2文字以上の漢字・カタカナ、英数字のまとまり）を取り出す。
  * 1文字の漢字（「上」など）はどこにでも出てくるので、ほかに言葉がないときだけ使う。
  * それもなければ、ひらがな2文字以上のまとまりを使う。

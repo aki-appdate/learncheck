@@ -21,6 +21,9 @@ export function needsFollowUp(q: { answered: number; correctRate: number }): boo
   return q.answered >= MIN_LEARNERS && q.correctRate < LOW_RATE;
 }
 
+/** 「よく選ばれた誤答」と呼ぶのに必要な人数 */
+export const MIN_COMMON_WRONG = 2;
+
 /** 割合を「67%」のように書く（画面・AIへの指示文・見本の返答で共通） */
 export function pct(n: number): string {
   return `${Math.round(n * 100)}%`;
@@ -128,11 +131,12 @@ function questionStats(test: Test, attempts: Attempt[]): QuestionStat[] {
       if (ans.choice >= 0 && ans.choice < 4) choiceCounts[ans.choice]++;
     }
     const correct = choiceCounts[q.answerIndex] ?? 0;
+    // 一番多く選ばれた誤答。2人以上が選び、ほかの誤答より多いときだけ（1人ずつ・同じ人数なら「よく選ばれた」とは言えない）
     let topWrong: QuestionStat["topWrong"] = null;
-    choiceCounts.forEach((count, choice) => {
-      if (choice === q.answerIndex || count === 0) return;
-      if (!topWrong || count > topWrong.count) topWrong = { choice, count, share: rate(count, answered) };
-    });
+    const wrongs = choiceCounts.map((count, choice) => ({ count, choice })).filter((w) => w.choice !== q.answerIndex);
+    const max = Math.max(0, ...wrongs.map((w) => w.count));
+    const tops = wrongs.filter((w) => w.count === max);
+    if (max >= MIN_COMMON_WRONG && tops.length === 1) topWrong = { choice: tops[0].choice, count: max, share: rate(max, answered) };
     return { questionId: q.id, index, answered, correct, correctRate: rate(correct, answered), choiceCounts, topWrong };
   });
 }
@@ -157,7 +161,8 @@ export function computeTestStats(test: Test, attempts: Attempt[], people: Person
       const deptAttempts = latestAttempts.filter((a) => ids.has(a.learnerId));
       const deptQuestions = questionStats(test, deptAttempts);
       if (deptAttempts.length) departmentQuestions.push({ department, questions: deptQuestions });
-      const weakestQ = [...deptQuestions].filter((q) => q.answered > 0).sort((a, b) => a.correctRate - b.correctRate || a.index - b.index)[0];
+      // 全員が正解した問題は「一番間違いが多い問題」として出さない
+      const weakestQ = [...deptQuestions].filter((q) => q.answered > 0 && q.correctRate < 1).sort((a, b) => a.correctRate - b.correctRate || a.index - b.index)[0];
       return {
         department,
         learners: deptAttempts.length,
@@ -172,7 +177,8 @@ export function computeTestStats(test: Test, attempts: Attempt[], people: Person
     .flatMap((q) =>
       q.choiceCounts
         .map((count, choice) => ({ questionId: q.questionId, choice, count, share: rate(count, q.answered) }))
-        .filter((w) => w.choice !== test.questions[q.index].answerIndex && w.count > 0),
+        // 1人しか選んでいない誤答は「よく選ばれた誤答」とは呼べないので、2人以上が選んだものだけ
+        .filter((w) => w.choice !== test.questions[q.index].answerIndex && w.count >= MIN_COMMON_WRONG),
     )
     .sort((a, b) => b.count - a.count || b.share - a.share)
     .slice(0, 5);

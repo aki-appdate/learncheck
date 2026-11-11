@@ -39,7 +39,7 @@ export function FollowUpPanel({ test, stats, onOpenQuestion }: { test: Test; sta
               {stats.learnerCount === 0
                 ? "受講結果がまだないため、案を出せません。受講者が受けると押せるようになります。"
                 : stats.learnerCount < MIN_LEARNERS
-                  ? `受講したのはまだ${stats.learnerCount}人です。${MIN_LEARNERS}人未満では傾向を言い切れないため、「まだ結論は出せない」という案になります。`
+                  ? "今押すと、「まだ結論は出せない」という案になります。"
                   : "問題ごとの正答率と誤答の選ばれ方から、伝わっていない所とフォローの案を出します。気づきごとに根拠の問題を開いて確かめられます。"}
             </p>
           </div>

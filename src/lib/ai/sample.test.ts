@@ -8,7 +8,8 @@ import { createSeedData } from "../seed";
 import { isFormatError, keepEvidenced } from "./index";
 import { buildFollowUpPrompt, buildQuizPrompt } from "./prompts";
 import { z } from "zod";
-import { categoryOf, countable, extractTerms, flipRule, numberVariants, sampleFollowUp, sampleQuiz, splitSentences } from "./sample";
+import { categoryOf, countable, extractTerms, flipRule, listedCount, numberVariants, sampleFollowUp, sampleQuiz, splitSentences } from "./sample";
+import { hashString, mulberry32 } from "../random";
 import type { GeneratedQuestion } from "../types";
 
 describe("splitSentences", () => {
@@ -52,17 +53,55 @@ describe("extractTerms", () => {
 });
 
 describe("numberVariants（数字の誤答）", () => {
-  it("正解に近い数字だけを使い、10倍のような極端な数字は使わない", () => {
+  const term = (v: number, unit: string) => ({ text: `${v}${unit}`, kind: "number" as const, index: 0, unit, value: v });
+
+  it("正解に近い数字だけを3つ使い、10倍のような極端な数字や0以下は使わない", () => {
     for (const d of ["easy", "normal", "hard"] as const) {
-      for (const [v, unit] of [[1, "回"], [3, "年"], [12, "文字以上"], [30, "分以内"], [5, "営業日以内"]] as const) {
-        const vs = numberVariants({ text: `${v}${unit}`, kind: "number", index: 0, unit, value: v }, d);
-        expect(vs.length).toBeGreaterThanOrEqual(3);
-        for (const x of vs) {
-          const n = Number(x.match(/^\d+/)![0]);
-          expect(n).toBeGreaterThan(0);
-          expect(n / v).toBeLessThanOrEqual(4);
-          expect(Math.abs(n - v)).toBeLessThanOrEqual(v < 10 ? 3 : v < 20 ? 6 : 30);
+      for (const [v, unit] of [[2, "回"], [3, "年"], [12, "文字以上"], [30, "分以内"], [5, "営業日以内"], [8000, "円"]] as const) {
+        for (let seed = 0; seed < 20; seed++) {
+          const vs = numberVariants(term(v, unit), d, mulberry32(seed));
+          expect(vs).toHaveLength(3);
+          for (const x of vs) {
+            const n = Number(x.match(/^\d+/)![0]);
+            expect(n).toBeGreaterThan(0);
+            expect(n).not.toBe(v);
+            expect(n / v).toBeLessThanOrEqual(4);
+            expect(v / n).toBeLessThanOrEqual(5);
+          }
         }
+      }
+    }
+  });
+
+  it("3回目のチェックの指摘：正解が「いつも2番目に小さい数」にならない（並べたときの正解の順位がばらつく）", () => {
+    const ranks = [0, 0, 0, 0];
+    for (let seed = 0; seed < 200; seed++) {
+      const vs = numberVariants(term(50, "分以内"), "normal", mulberry32(hashString(`seed${seed}`))).map((x) => Number(x.match(/^\d+/)![0]));
+      ranks[[50, ...vs].sort((a, b) => a - b).indexOf(50)]++;
+    }
+    // 1位〜4位のどれも、全体の1割以上は出る
+    for (const r of ranks) expect(r).toBeGreaterThanOrEqual(20);
+  });
+
+  it("小さい数で下に作れないときは、上で補う（0やマイナスを作らない）", () => {
+    for (let seed = 0; seed < 20; seed++) {
+      const vs = numberVariants(term(2, "回"), "normal", mulberry32(seed));
+      expect(vs).toHaveLength(3);
+      expect(vs.every((x) => Number(x.match(/^\d+/)![0]) >= 1)).toBe(true);
+    }
+  });
+
+  it("3回目のチェックの指摘：並べた物の数を超える誤答は出さない（4つのうち「5種類以上」は選べない）", () => {
+    expect(listedCount("英字の大文字・小文字・数字・記号のうち")).toBe(4);
+    for (let seed = 0; seed < 50; seed++) {
+      const vs = numberVariants(term(3, "種類以上"), "normal", mulberry32(seed), { max: 4 });
+      expect(vs).toHaveLength(3);
+      expect(vs).not.toContain("5種類以上");
+    }
+    const security = MATERIALS.find((m) => m.id === "mat-security")!;
+    for (const d of ["easy", "normal", "hard"] as const) {
+      for (let v = 0; v < 4; v++) {
+        for (const q of sampleQuiz({ body: security.body, count: 8, difficulty: d, variant: v })) expect(q.choices).not.toContain("5種類以上");
       }
     }
   });
@@ -71,8 +110,9 @@ describe("numberVariants（数字の誤答）", () => {
 describe("flipRule（きまりの文を逆の意味にする）", () => {
   it("禁止・必ず・〜ません を逆の意味にする", () => {
     expect(flipRule("電車の網棚にかばんを置くことは禁止です。")).toBe("電車の網棚にかばんを置くことは認められています");
-    expect(flipRule("飲食店やカフェで、お客様の資料を広げて作業してはいけません。")).toBe("飲食店やカフェで、お客様の資料を広げて作業してもかまいません");
-    expect(flipRule("提案書は、お客様に出す前に、必ず上長の確認を受けてください。")).toBe("提案書は、上長の確認を受けずにお客様に出してかまいません");
+    expect(flipRule("飲食店やカフェで、お客様の資料を広げて作業してはいけません。")).toBe("飲食店やカフェで、お客様の資料を広げて作業します");
+    // 汎用の規則だけ（貼り付けた資料と同じ）では「受けずにください」のような不自然な文になるので、書き換えない
+    expect(flipRule("提案書は、お客様に出す前に、必ず上長の確認を受けてください。")).toBeNull();
     expect(flipRule("報告した人が責められることはありません。")).toBe("報告した人が責められることがあります");
     expect(flipRule("上長に相談しにくい内容は、直接相談窓口に連絡してかまいません。")).toBe("上長に相談しにくい内容は、直接相談窓口に連絡してはいけません");
     expect(flipRule("適切な言い方で行うことはパワーハラスメントにはあたりません。")).toBe("適切な言い方で行うことはパワーハラスメントにあたります");
@@ -94,13 +134,18 @@ describe("flipRule（きまりの文を逆の意味にする）", () => {
     expect(flipRule("紛失したときは、管理画面から遠隔で端末をロックし、データを消去できます。")).toBeNull();
     expect(flipRule("提案書には、今の費用と当社に切り替えたあとの費用を、同じ条件で並べて書きます。")).toBeNull();
     expect(flipRule("「こんなことで連絡していいのか」と迷う必要はありません。")).toBeNull();
-    // 「必ず」は「できれば」にせず、はっきり逆の内容に言い換える
-    expect(flipRule("どうしても解約する場合は、残りの期間のリース料をまとめて支払う必要があることを、契約の前に必ず説明します。")).toBe(
-      "どうしても解約する場合は、残りの期間のリース料をまとめて支払う必要があることを、契約のあとで説明します",
-    );
-    expect(flipRule("席を離れるときは、短い時間でも必ず画面をロックします。")).toBe("席を離れるときは、短い時間なら画面をロックしなくてもかまいません");
+    // 「必ず」は「できれば」にせず、はっきり逆の内容に言い換える（見本資料では、資料ごとに用意した誤答の候補を使う）
+    const products = MATERIALS.find((m) => m.id === "mat-products")!;
+    expect(
+      flipRule("どうしても解約する場合は、残りの期間のリース料をまとめて支払う必要があることを、契約の前に必ず説明します。", products.distractorHints),
+    ).toBe("どうしても解約する場合は、残りの期間のリース料をまとめて支払う必要があることを、契約のあとで説明します");
+    // 汎用の規則だけでは自然に書き換えられないので、誤答に使わない
+    expect(flipRule("どうしても解約する場合は、残りの期間のリース料をまとめて支払う必要があることを、契約の前に必ず説明します。")).toBeNull();
+    const security = MATERIALS.find((m) => m.id === "mat-security")!;
+    expect(flipRule("席を離れるときは、短い時間でも必ず画面をロックします。", security.distractorHints)).toBe("席を離れるときは、10分以上離れる場合だけ画面をロックします");
     // 「〜も、〜です」を打ち消すときは「〜は、〜にはあたりません」にする
-    expect(flipRule("お客様の声を録音した通話の記録も、個人情報です。")).toBe("お客様の声を録音した通話の記録は、個人情報にはあたりません");
+    const privacy = MATERIALS.find((m) => m.id === "mat-privacy")!;
+    expect(flipRule("お客様の声を録音した通話の記録も、個人情報です。", privacy.distractorHints)).toBe("お客様の声を録音した通話の記録は、個人情報にはあたりません");
     for (const m of MATERIALS) {
       for (const sen of splitSentences(m.body)) {
         const f = flipRule(sen.text);
@@ -117,7 +162,9 @@ describe("flipRule（きまりの文を逆の意味にする）", () => {
 
 const FILL = "資料の内容として正しくなるように";
 const BLANK = "（　　　）";
-const isNumber = (c: string) => /^\d/.test(c);
+/** 「年に1回」のような頻度は、ひとまとまりの数字の問題として扱う */
+const isFreq = (c: string) => /^(?:週|月|半年|年|\d+年)に\d+回$/.test(c);
+const isNumber = (c: string) => /^\d/.test(c) || isFreq(c);
 const answerOf = (q: GeneratedQuestion) => q.choices[q.answerIndex];
 const wrongsOf = (q: GeneratedQuestion) => q.choices.filter((_, i) => i !== q.answerIndex);
 const ALL = MATERIALS.flatMap((m) => (["easy", "normal", "hard"] as const).flatMap((d) => [8, 10].map((count) => ({ m, d, count, qs: sampleQuiz({ body: m.body, count, difficulty: d }) }))));
@@ -162,9 +209,10 @@ describe("sampleQuiz（見本の返答で問題を作る）：4つの資料×3�
 
   it.each(CASES)("%s：数字の誤答は正解に近い数字で、数字の問題は半分まで", (_, { qs, count }) => {
     const nums = qs.filter((q) => q.prompt.startsWith(FILL) && isNumber(answerOf(q)));
-    // 数字の問題はおよそ半分まで（ほかの問題が作れないときだけ、6割まで許す）
-    expect(nums.length).toBeLessThanOrEqual(Math.ceil(count * 0.6));
-    for (const q of nums) {
+    // 数字の問題は、実際にできた問題数のおよそ半分まで（README の説明どおり）
+    expect(nums.length).toBeLessThanOrEqual(Math.ceil(qs.length / 2));
+    expect(count).toBeGreaterThan(0);
+    for (const q of nums.filter((x) => !isFreq(answerOf(x)))) {
       const v = Number(answerOf(q).match(/^\d+/)![0]);
       for (const w of wrongsOf(q)) {
         const n = Number(w.match(/^\d+/)![0]);
@@ -318,7 +366,8 @@ describe("sampleQuiz：不自然な問題を作らない（2回目のチェッ�
   it("きまりの問題の問題文は「『○○』の項目について、正しいもの（合わないもの）はどれですか」", () => {
     for (const { qs: list } of ALL) {
       for (const q of list.filter((x) => !x.prompt.startsWith(FILL))) {
-        expect(q.prompt).toMatch(/^(?:「[^」]+」){1,3}の項目について、(?:正しいもの|資料の内容と合わないもの)はどれですか。$/);
+        // 選択肢の項目が4つ以上にまたがるときは「資料全体について、」とする
+        expect(q.prompt).toMatch(/^(?:(?:「[^」]+」){1,3}の項目について、|資料全体について、)(?:正しいもの|資料の内容と合わないもの)はどれですか。$/);
         expect(q.prompt).not.toContain("など、");
       }
     }
@@ -402,6 +451,24 @@ describe("sampleFollowUp：受講者が少ないとき・同じ問題の重複",
     expect(all).not.toMatch(/理解が十分でない|理解度は高め|つまずいている問題はありません|第\d+問|%|平均点/);
   });
 
+  it("3回目のチェックの指摘：受講者が3人未満の部署を「平均点が低め」と言い切らない", () => {
+    const stats = computeTestStats(test, d.attempts, d.people);
+    const r = sampleFollowUp(test, stats, d.people);
+    for (const f of r.findings) {
+      const m = f.title.match(/^(.+)の平均点が低め/);
+      if (m) expect(stats.departments.find((x) => x.department === m[1])!.learners).toBeGreaterThanOrEqual(3);
+    }
+    // 3人のうち2人が同じ部署で低い点でも、その部署の「平均点が低め」は出さない
+    const cs = d.people.filter((p) => p.department === "カスタマーサポート").map((p) => p.id);
+    const other = learners.filter((id) => !cs.includes(id));
+    const keep = new Set([...cs.filter((id) => learners.includes(id)).slice(0, 2), other[0]]);
+    const small = computeTestStats(test, d.attempts.filter((a) => keep.has(a.learnerId)), d.people);
+    if (small.learnerCount >= 3) {
+      const all = sampleFollowUp(test, small, d.people).findings.map((f) => f.title).join("\n");
+      expect(all).not.toMatch(/平均点が低め/);
+    }
+  });
+
   it("受講者が3人なら、ふつうの分析をする", () => {
     const keep = new Set(learners.slice(0, 3));
     const stats = computeTestStats(test, d.attempts.filter((a) => keep.has(a.learnerId)), d.people);
@@ -453,5 +520,88 @@ describe("buildQuizPrompt", () => {
     const base = { title: "t", body: "b", count: 5, difficulty: "normal" as const };
     expect(buildQuizPrompt(base)).not.toContain("作り直し");
     expect(buildQuizPrompt({ ...base, variant: 2 })).toContain("作り直し: 2回目");
+  });
+});
+
+describe("sampleQuiz：3回目のチェックの指摘（答えの目印・貼り付けた資料）", () => {
+  // チェック係が貼り付けて試した資料（経費精算）と同じ形の短い資料
+  const PASTED = `経費精算のルール
+
+1. 申請の期限
+経費は、使った日から2週間以内に精算システムで申請してください。月末をまたぐ場合は、翌月の5営業日までに申請します。期限を過ぎた申請は、部長の承認がないと受け付けません。
+
+2. 領収書
+領収書は、宛名を当社の正式名称にしてもらいます。レシートしかもらえない場合は、レシートに用途を手書きで書き添えてください。領収書をなくしたときは、再発行を依頼し、それもできない場合は理由書を提出します。
+
+3. 交通費
+電車やバスは、最も安い経路の運賃で申請します。タクシーは、深夜0時を過ぎた場合と、重い荷物を運ぶ場合にだけ使えます。新幹線のグリーン車は使いません。
+
+4. 会食
+お客様との会食は、1人あたり8000円までです。事前に上長へ相手の会社名と人数を伝えてください。社内の人だけの飲み会は、経費になりません。
+`;
+  const PERMIT = /(?:かまいません|認められています|問題ありません|必要はありません)$/;
+
+  it("「〜ないと〜ません」「〜しか〜ません」を「〜ます」にしない（「承認がないと受け付けます」を出さない）", () => {
+    expect(flipRule("期限を過ぎた申請は、部長の承認がないと受け付けません。")).toBeNull();
+    expect(flipRule("レシートしか受け付けません。")).toBeNull();
+    for (const d of ["easy", "normal", "hard"] as const) {
+      for (let v = 0; v < 4; v++) {
+        for (const q of sampleQuiz({ body: PASTED, count: 8, difficulty: d, variant: v })) expect(q.choices.join("\n")).not.toMatch(/ないと受け付けます/);
+      }
+    }
+  });
+
+  it("数字の問題は、実際にできた問題数のおよそ半分まで（短い資料でも）", () => {
+    for (const d of ["easy", "normal", "hard"] as const) {
+      for (const count of [5, 8, 10]) {
+        const qs = sampleQuiz({ body: PASTED, count, difficulty: d });
+        expect(qs.length).toBeGreaterThan(0);
+        expect(qs.filter((q) => q.prompt.startsWith(FILL) && isNumber(answerOf(q))).length).toBeLessThanOrEqual(Math.ceil(qs.length / 2));
+      }
+    }
+  });
+
+  it("「合わないもの」では、許可の形（〜てもかまいません）の選択肢がそれだけ答えになる問題を、ほぼ作らない", () => {
+    let asked = 0;
+    let cue = 0;
+    for (const { qs } of ALL) {
+      for (const q of qs.filter((x) => x.prompt.includes("合わないもの"))) {
+        asked++;
+        const p = q.choices.map((c) => PERMIT.test(c));
+        if (p.filter(Boolean).length === 1 && p[q.answerIndex]) cue++;
+      }
+    }
+    expect(asked).toBeGreaterThan(20);
+    expect(cue / asked).toBeLessThanOrEqual(0.05);
+  });
+
+  it("「正しいもの」の誤答に、許可の形は1つまで（ほかの問題が作れないときを除く）", () => {
+    let many = 0;
+    let asked = 0;
+    for (const { qs } of ALL) {
+      for (const q of qs.filter((x) => x.prompt.endsWith("正しいものはどれですか。"))) {
+        asked++;
+        if (wrongsOf(q).filter((c) => PERMIT.test(c)).length >= 2) many++;
+      }
+    }
+    expect(many / asked).toBeLessThanOrEqual(0.1);
+  });
+
+  it("見本資料ごとの誤答の候補は、見本資料だけに使う（貼り付けた資料では汎用の規則だけ）", () => {
+    const products = MATERIALS.find((m) => m.id === "mat-products")!;
+    expect(products.distractorHints?.length).toBeGreaterThan(0);
+    // 同じ文でも、候補を渡さなければ汎用の規則だけで書き換える
+    expect(flipRule("保守センターの電話番号は、本体の正面に貼ってあるシールに書かれています。")).toBeNull();
+    expect(flipRule("保守センターの電話番号は、本体の正面に貼ってあるシールに書かれています。", products.distractorHints)).toBe(
+      "保守センターの電話番号は、本体の裏側に貼ってあるシールに書かれています",
+    );
+  });
+
+  it("短い条件で始まる、前の文を受けた文（「10分を超えても話がまとまらない場合は、〜」）を選択肢・空欄に使わない", () => {
+    const body = `電話応対の基本
+
+1. クレームの電話
+クレームの電話では、相手の話を途中でさえぎらずに最後まで聞きます。その場で約束できないことは、上長に確認してから折り返すと伝えます。10分を超えても話がまとまらない場合は、上長に代わってもらいます。担当者の携帯電話の番号は、相手に教えてはいけません。電話は3回鳴るまでに取ります。相手の会社名とお名前は、必ず復唱して確認します。保留にする時間は30秒までにします。`;
+    for (const q of sampleQuiz({ body, count: 8, difficulty: "normal" })) expect([q.prompt, ...q.choices].join("\n")).not.toMatch(/話がまとまらない場合は/);
   });
 });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { checkQuestion, checkTest, choiceWords, isChanged, publishBlockers, sharesWord } from "./quality";
+import { checkQuestion, checkTest, choiceWords, isChanged, publishBlockers, sharesWord, staleExplanationQuotes } from "./quality";
 import { MATERIALS } from "./materials";
 import { createSeedData } from "./seed";
 import type { GeneratedQuestion, TestQuestion } from "./types";
@@ -163,5 +163,28 @@ describe("isChanged（人が書き換えたか）", () => {
     expect(isChanged(base, { ...base, explanation: "x" })).toBe(true);
     expect(isChanged(base, { ...base, quote: "パスワードは12文字以上にします。" })).toBe(true);
     expect(isChanged(base, { ...base, difficulty: "hard" })).toBe(true);
+  });
+});
+
+describe("staleExplanationQuotes（選択肢を直したのに解説が古い文言のまま：3回目のチェックの指摘）", () => {
+  const before = { choices: ["期限を過ぎた申請は、部長の承認がないと受け付けます", "A", "B", "C"] };
+  it("直す前の選択肢を「」で引いたまま、選択肢だけ書き換えたら知らせる", () => {
+    const after = {
+      choices: ["期限を過ぎた申請は、部長の承認があれば受け付けます", "A", "B", "C"],
+      explanation: "「期限を過ぎた申請は、部長の承認がないと受け付けます」は、資料と逆の内容です。",
+    };
+    expect(staleExplanationQuotes(before, after)).toEqual(["期限を過ぎた申請は、部長の承認がないと受け付けます"]);
+  });
+  it("解説も合わせて直したとき・選択肢を変えていないときは知らせない", () => {
+    expect(staleExplanationQuotes(before, { choices: ["新しい文", "A", "B", "C"], explanation: "「新しい文」は資料と逆です。" })).toEqual([]);
+    expect(staleExplanationQuotes(before, { ...before, explanation: "「期限を過ぎた申請は、部長の承認がないと受け付けます」は逆です。" })).toEqual([]);
+  });
+  it("選択肢の中に「LC-5000」のような入れ子のかっこがあっても見つける", () => {
+    const b = { choices: ["1分間に80枚の印刷ができる「LC-5000」をおすすめします", "A", "B", "C"] };
+    const after = {
+      choices: ["1分間に70枚の印刷ができる「LC-5000」をおすすめします", "A", "B", "C"],
+      explanation: "資料には「1分間に50枚の印刷ができる「LC-5000」をおすすめします。」とあります。「1分間に80枚の印刷ができる「LC-5000」をおすすめします」は、これと逆の内容です。",
+    };
+    expect(staleExplanationQuotes(b, after)).toEqual(["1分間に80枚の印刷ができる「LC-5000」をおすすめします"]);
   });
 });

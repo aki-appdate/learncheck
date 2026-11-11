@@ -1,12 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useDeferredValue, useMemo, useState } from "react";
 import { useApp } from "../AppProvider";
 import { MaterialFull } from "../MaterialExcerpt";
 import { btn, Card, cx, Icon, Modal } from "../ui";
-import { generateQuiz } from "@/lib/ai";
+import { aiMode, generateQuiz } from "@/lib/ai";
+import { sampleQuiz } from "@/lib/ai/sample";
 import { newId } from "@/lib/dates";
-import { DIFFICULTY_LABEL, DIFFICULTY_ORDER, QUESTION_COUNTS } from "@/lib/labels";
+import { DIFFICULTY_HINT, DIFFICULTY_LABEL, DIFFICULTY_ORDER, QUESTION_COUNTS } from "@/lib/labels";
 import type { Difficulty, Test } from "@/lib/types";
 
 const PASTE = "paste";
@@ -30,6 +31,22 @@ export function CreateTestForm({ onCreated }: { onCreated: (id: string) => void 
   const body = isPaste ? pasteBody.trim() : selected?.body ?? "";
   const bodyLen = pasteBody.trim().length;
   const canRun = !busy && title.length > 0 && body.length >= MIN_BODY && body.length <= MAX_BODY;
+  // 見本の返答（AIを使わないとき）で、貼り付けた資料から何問作れそうかを先に知らせる。
+  // 1つの文はテスト全体で1回しか使わないため、短い資料では頼んだ数より少なくなる
+  const deferredBody = useDeferredValue(body);
+  const estimate = useMemo(() => {
+    if (!isPaste || aiMode() !== "sample" || deferredBody.length < MIN_BODY || deferredBody.length > MAX_BODY) return null;
+    return sampleQuiz({ body: deferredBody, count, difficulty }).length;
+  }, [isPaste, deferredBody, count, difficulty]);
+  const buttonHint = busy
+    ? "次の画面で、根拠の文と問題を1問ずつ確かめてから公開します。"
+    : isPaste && bodyLen > MAX_BODY
+      ? `本文は${MAX_BODY.toLocaleString()}字までにしてください（今は${bodyLen.toLocaleString()}字です）。`
+      : isPaste && !canRun
+        ? title.length === 0 && bodyLen >= MIN_BODY
+          ? "資料の名前を入れると作れます。"
+          : `資料の名前と、${MIN_BODY}字以上の本文を入れると作れます。`
+        : "次の画面で、根拠の文と問題を1問ずつ確かめてから公開します。";
 
   async function run() {
     setBusy(true);
@@ -159,6 +176,13 @@ export function CreateTestForm({ onCreated }: { onCreated: (id: string) => void 
                 </button>
               ))}
             </fieldset>
+            {estimate !== null && estimate < count && (
+              <p className="mt-2.5 text-xs leading-relaxed text-warn" role="status">
+                {estimate === 0
+                  ? "この資料からは、見本の返答では問題を作れません。「。」で終わる文が多い資料を使ってください。"
+                  : `この長さの資料なら、見本の返答で作れるのは${estimate}問ほどです（1つの文はテスト全体で1回しか使わないため）。`}
+              </p>
+            )}
           </Step>
           <Step n={3} title="難しさ" className="border-t border-line sm:border-t-0">
             <fieldset disabled={busy} className="flex gap-2">
@@ -169,6 +193,12 @@ export function CreateTestForm({ onCreated }: { onCreated: (id: string) => void 
                 </button>
               ))}
             </fieldset>
+            <p className="mt-2.5 text-xs leading-relaxed text-ink-soft">{DIFFICULTY_HINT[difficulty]}。</p>
+            {aiMode() === "sample" && (
+              <p className="mt-1 text-xs leading-relaxed text-ink-muted">
+                見本の返答では、作れる問題の形が資料の文しだいなので、難しさによる違いは小さくなることがあります（短い資料ほど小さくなります）。
+              </p>
+            )}
           </Step>
         </div>
 
@@ -176,11 +206,7 @@ export function CreateTestForm({ onCreated }: { onCreated: (id: string) => void 
           <button className={cx(btn.primary, "w-full sm:w-auto sm:min-w-56")} onClick={run} disabled={!canRun} aria-busy={busy}>
             {busy ? "問題の案を作っています…" : "AIで確認テストを作る"}
           </button>
-          <p className="text-xs leading-relaxed text-ink-muted">
-            {!busy && !canRun && isPaste
-              ? "資料の名前と、200字以上の本文を入れると作れます。"
-              : "次の画面で、根拠の文と問題を1問ずつ確かめてから公開します。"}
-          </p>
+          <p className={cx("text-xs leading-relaxed", isPaste && bodyLen > MAX_BODY ? "font-bold text-bad" : "text-ink-muted")}>{buttonHint}</p>
         </div>
         {error && (
           <p className="flex gap-2 border-l-4 border-bad bg-bad-soft px-5 py-3 text-sm text-bad" role="alert">

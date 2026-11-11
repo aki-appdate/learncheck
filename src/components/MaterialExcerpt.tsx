@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { excerptAround, findQuote } from "@/lib/quote";
+import { excerptAround, findQuote, QUOTE_REASON_LABEL } from "@/lib/quote";
 import { btn, cx, Icon, Modal } from "./ui";
 
 /** 引用文を資料の中で探し、前後の文とあわせて印をつけて見せる。見つからなければ赤で知らせる。
@@ -23,14 +23,23 @@ export function MaterialExcerpt({
   const match = findQuote(body, quote);
 
   if (!match.found) {
+    // 確かめられなかった理由ごとに説明を変える。「作った可能性」と言えるのは、十分な長さの文が資料に見つからないときだけ。
+    // 短すぎる・空のときは、資料にあるかどうかをまだ判断していない
+    const notFound = match.reason === "not_found";
     return (
-      <div className={cx("border-l-[3px] border-bad bg-bad-soft px-4 py-3 text-sm", className)} role="alert">
-        <p className="flex items-center gap-1.5 font-bold text-bad">
+      <div className={cx("border-l-[3px] px-4 py-3 text-sm", notFound ? "border-bad bg-bad-soft" : "border-warn bg-warn-soft", className)} role="alert">
+        <p className={cx("flex items-center gap-1.5 font-bold", notFound ? "text-bad" : "text-warn")}>
           <Icon name="alert" className="size-4" />
-          この引用文は資料の中に見つかりません
+          {QUOTE_REASON_LABEL[match.reason]}
         </p>
-        <p className="mt-1.5 whitespace-pre-wrap leading-relaxed text-ink-soft">「{quote || "（空）"}」</p>
-        <p className="mt-1.5 text-xs text-bad">資料にないことをAIが作った可能性があります。</p>
+        {match.reason !== "empty" && <p className="mt-1.5 whitespace-pre-wrap leading-relaxed text-ink-soft">「{quote}」</p>}
+        <p className={cx("mt-1.5 text-xs", notFound ? "text-bad" : "text-ink-soft")}>
+          {notFound
+            ? "資料にないことをAIが作った可能性があります。"
+            : match.reason === "too_short"
+              ? "短い言葉は資料のあちこちに出てくるため、根拠の文としては確かめません。文をまるごと入れてください。"
+              : "根拠の文を入れると、資料の中のどこにあるかを確かめます。"}
+        </p>
       </div>
     );
   }

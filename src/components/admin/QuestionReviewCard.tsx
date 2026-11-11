@@ -3,7 +3,7 @@
 import { useId, useState } from "react";
 import { MaterialExcerpt, MaterialFull } from "../MaterialExcerpt";
 import { Badge, btn, ChoiceMark, cx, Icon, Modal, QNo, Seal } from "../ui";
-import { CHOICE_MARKS, checkQuestion, hasError } from "@/lib/quality";
+import { CHOICE_MARKS, checkQuestion, hasError, staleExplanationQuotes } from "@/lib/quality";
 import { DIFFICULTY_LABEL, DIFFICULTY_ORDER } from "@/lib/labels";
 import type { Difficulty, GeneratedQuestion, TestQuestion } from "@/lib/types";
 
@@ -181,6 +181,8 @@ function QuestionEditor({
   const radioName = useId();
   const check = checkQuestion(d, material.body);
   const blocked = hasError(check.issues);
+  // 選択肢を書き換えたのに、解説が直す前の文言を引いたままになっていないか
+  const stale = staleExplanationQuotes(initial, d);
   const field = "w-full rounded-[3px] border border-line-strong bg-surface px-3 py-2 text-sm leading-relaxed";
 
   return (
@@ -214,6 +216,12 @@ function QuestionEditor({
         <span className="label">解説</span>
         <textarea className={`${field} mt-1 h-16`} value={d.explanation} maxLength={250} onChange={(e) => setD({ ...d, explanation: e.target.value })} />
       </label>
+      {stale.length > 0 && (
+        <p className="-mt-2 flex gap-1.5 text-xs font-bold text-warn" role="status">
+          <Icon name="alert" className="mt-px size-4 shrink-0" />
+          <span>解説が、直す前の選択肢「{stale[0]}」を引いたままです。選択肢に合わせて解説も直してください。</span>
+        </p>
+      )}
       <label className="block">
         <span className="flex flex-wrap items-baseline justify-between gap-x-3">
           <span className="label">根拠となる資料の文（一字一句そのまま写す）</span>

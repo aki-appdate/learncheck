@@ -115,7 +115,8 @@ export function TakeTest({ test, onExit }: { test: Test; onExit: () => void }) {
         </p>
         <p className="mt-2 whitespace-pre-wrap text-[17px] font-bold leading-[1.75] sm:text-lg">{q.prompt}</p>
 
-        <div className="mt-5 space-y-2.5" role="radiogroup" aria-label="選択肢">
+        {/* 問題ごとに key を変えて作り直す（前の問題の正誤の色が、色の切り替えの途中で一瞬残らないように） */}
+        <div key={q.id} className="mt-5 space-y-2.5" role="radiogroup" aria-label="選択肢">
           {q.choices.map((c, i) => {
             const isAnswer = i === q.answerIndex;
             const isPicked = i === picked;

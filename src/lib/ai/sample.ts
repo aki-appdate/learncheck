@@ -11,9 +11,10 @@
 // 資料の前置き（「この資料では…まとめます」）や、前の文を読まないと分からない文は使わない。
 
 import { CHOICE_MARKS } from "../quality";
-import { MIN_LEARNERS, needsFollowUp, pct, type TestStats } from "../analytics";
+import { DEPT_MIN_LEARNERS, MIN_LEARNERS, needsFollowUp, pct, type TestStats } from "../analytics";
 import { normalize } from "../quote";
 import { hashString, mulberry32, shuffle } from "../random";
+import { MATERIALS } from "../materials";
 import type { Difficulty, FollowUpInsight, GeneratedQuestion, Person, Test } from "../types";
 
 // ───────── 文に分ける ─────────
@@ -74,9 +75,12 @@ export type Term = {
 };
 
 const UNITS = [
-  "営業日以内", "時間以内", "日以内", "分以内", "秒以内", "文字以上", "種類以上", "桁以上", "か月", "ヶ月", "週間", "分間",
-  "文字", "種類", "時間", "桁", "年", "日", "分", "秒", "枚", "台", "名", "人", "回", "件", "点", "つ", "時", "%", "％",
+  "営業日以内", "営業日", "時間以内", "日以内", "分以内", "秒以内", "文字以上", "種類以上", "桁以上", "か月", "ヶ月", "週間", "分間",
+  "文字", "種類", "時間", "桁", "年", "日", "分", "秒", "枚", "台", "名", "人", "回", "件", "点", "つ", "時", "円", "%", "％",
 ];
+const FREQ_RE = /(?<![半\d])(?:年|月|週)に(\d+)回/g;
+const FREQ_UNIT = "頻度";
+const FREQUENCIES = ["週に1回", "月に1回", "半年に1回", "年に1回", "年に2回", "2年に1回"];
 const NUM_RE = new RegExp(`(?<![-\\d.])(\\d+)(${UNITS.map((u) => u.replace(/[%％]/g, "\\$&")).join("|")})`, "g");
 const KATAKANA_RE = /[ァ-ヴ][ァ-ヴー]+/g;
 const KANJI_RE = /[一-龠々]+/g;
@@ -122,6 +126,9 @@ function insideQuote(text: string, index: number): boolean {
 export function extractTerms(text: string): Term[] {
   const terms: Term[] = [];
   for (const m of text.matchAll(NUM_RE)) terms.push({ text: m[0], kind: "number", index: m.index!, unit: m[2], value: Number(m[1]) });
+  // 「年に1回」のような頻度は、ひとまとまりで扱う（誤答は「半年に1回」「2年に1回」など。数字だけを変えると、
+  // 「1回」がいつも一番小さい数になり、それだけで答えが分かってしまう）
+  for (const m of text.matchAll(FREQ_RE)) terms.push({ text: m[0], kind: "number", index: m.index!, unit: FREQ_UNIT, value: Number(m[1]) });
   const word = (m: RegExpMatchArray, kind: TermKind) => {
     const w = m[0];
     const i = m.index!;
@@ -144,33 +151,46 @@ const PROHIBIT_RE = /いけません|禁止|ないで|ません。$|避けます
 
 /** 物の数を表す単位（「4つの機能」「2種類」「4点」） */
 const COUNT_UNITS = new Set(["つ", "点", "種類", "項目", "個"]);
+/** 物の数の単位か（「3種類以上」の「種類以上」も含める） */
+const isCountUnit = (unit?: string) => COUNT_UNITS.has((unit ?? "").replace(/(?:以上|以内)$/, ""));
 
 /**
- * 数字の前に並べて書かれた物の数が、その数字以上あるか（＝問題文を数えれば答えが分かる）。
- * 「A・B・Cの」「AとBの」「A、B、Cの」の3つの並べ方を数える。
+ * 数字のすぐ前に並べて書かれた物の数（「A・B・Cの」「AとBの」「A、B、Cの」）。並べていなければ 0。
  */
-export function countable(before: string, value: number): boolean {
-  if (value < 2) return false;
-  const head = before.replace(/の$/, "");
+export function listedCount(before: string): number {
+  const head = before.replace(/(?:の|のうち)$/, "");
   const lastClause = head.split("、").pop() ?? "";
   const counts = [
     lastClause.split("・").length,
     lastClause.split("と").filter(Boolean).length,
     head.split("、").filter(Boolean).length,
-  ];
-  return counts.some((n) => n >= 2 && n >= value);
+  ].filter((n) => n >= 2);
+  return counts.length ? Math.max(...counts) : 0;
+}
+
+/**
+ * 数字の前に並べて書かれた物の数が、その数字以上あるか（＝問題文を数えれば答えが分かる）。
+ */
+export function countable(before: string, value: number): boolean {
+  if (value < 2) return false;
+  const n = listedCount(before);
+  return n >= 2 && n >= value;
 }
 
 /** 空欄にしてよい語句か */
-function blankable(t: Term, sentence: string): boolean {
+/** forFlip：きまりの文の数字を書き換えるときの判定（選択肢を並べないので、0や1も使える） */
+function blankable(t: Term, sentence: string, forFlip = false): boolean {
   const before = sentence[t.index - 1] ?? "";
   const after = sentence[t.index + t.text.length] ?? "";
   if (insideParen(sentence, t.index)) return false;
   // 同じ文の別の場所に正解が書いてあると、答えが分かってしまう
   if (sentence.indexOf(t.text) !== sentence.lastIndexOf(t.text)) return false;
   if (t.kind === "number") {
-    // 「名刺1枚にも」「1台にまとめた」のような1は問題にしにくい（「年に1回」は残す）
-    if (t.value === 1 && t.unit !== "回") return false;
+    // 「名刺1枚にも」「年に1回」「深夜0時」のような0や1は空欄にしない。0やマイナスの誤答は作れないので、
+    // 選択肢を並べると正解がいつも一番小さい数になり、それだけで答えが分かってしまう
+    if (t.unit === FREQ_UNIT) return !forFlip && FREQUENCIES.includes(t.text);
+    if (!forFlip && (t.value ?? 0) <= 1) return false;
+    if (forFlip && t.value === 1 && t.unit !== "回") return false;
     // 「10〜30名」のような範囲の片方は空欄にしない
     if (/[〜～~\-－]/.test(before) || /[〜～~\-－]/.test(after)) return false;
     // 「コピー・プリント・スキャン・ファクスの4つ」のように、すぐ前に並べた物の数は、問題文を数えれば分かってしまう
@@ -221,12 +241,48 @@ export function categoryOf(word: string): string | null {
 
 // ───────── 誤答を作る ─────────
 
-/** 数字の誤答：正解に近い、ありえそうな数字にする（10倍のような極端な数字は使わない） */
-export function numberVariants(t: Term, difficulty: Difficulty): string[] {
+/**
+ * 数字の誤答を3つ作る。正解に近い、ありえそうな数字にする（10倍のような極端な数字は使わない）。
+ * ・正解より大きい誤答をいくつにするか（0〜3個）を乱数で決める。誤答をいつも「+1、−1、+2」の順で作ると、
+ *   4つを並べたときに正解が必ず2番目に小さい数になり、それだけで答えが分かってしまうため
+ * ・0以下の数は作らない。足りない分は反対側（正解より大きい側）で補う
+ * ・max があれば、それより大きい数は作らない（「大文字・小文字・数字・記号のうち（ ）」に「5種類以上」を出さない）
+ * ・やさしい＝数字の幅を広く（見分けやすい）、むずかしい＝資料の中の別の数字を1つ混ぜる（取り違えやすい）
+ */
+export function numberVariants(
+  t: Term,
+  difficulty: Difficulty,
+  rand: () => number = mulberry32(hashString(t.text)),
+  opts: { max?: number; others?: number[] } = {},
+): string[] {
+  if (t.unit === FREQ_UNIT) return shuffle(FREQUENCIES.filter((f) => f !== t.text), rand).slice(0, 3);
   const v = t.value ?? 1;
-  const step = v < 10 ? 1 : v < 20 ? 2 : v < 100 ? 10 : 50;
-  const list = difficulty === "easy" ? [v + step * 2, v - step, v + step, v - step * 2, v + step * 3] : [v + step, v - step, v + step * 2, v - step * 2, v + step * 3];
-  return [...new Set(list.filter((n) => n > 0 && n !== v))].map((n) => `${n}${t.unit}`);
+  const base = v < 10 ? 1 : v < 20 ? 2 : v < 100 ? 10 : v < 1000 ? 50 : 1000;
+  const step = difficulty === "easy" ? (v < 10 ? 1 : base * 2) : base;
+  const max = opts.max ?? Infinity;
+  const below = [1, 2, 3].map((i) => v - step * i).filter((n) => n > 0);
+  const above = [1, 2, 3].map((i) => v + step * i).filter((n) => n <= max);
+  const wantAbove = Math.floor(rand() * 4);
+  let nb = Math.min(3 - wantAbove, below.length);
+  const na = Math.min(3 - nb, above.length);
+  nb = Math.min(3 - na, below.length);
+  const lo = below.slice(0, nb);
+  const hi = above.slice(0, na);
+  // むずかしい：資料に出てくる同じ単位の別の数字を、同じ側の1つと入れ替える（正解の順位は変わらない）
+  if (difficulty === "hard") {
+    for (const o of opts.others ?? []) {
+      if (o === v || o <= 0 || o > max || lo.includes(o) || hi.includes(o)) continue;
+      if (o < v && lo.length && o >= v / 3) {
+        lo[lo.length - 1] = o;
+        break;
+      }
+      if (o > v && hi.length && o <= v * 3) {
+        hi[hi.length - 1] = o;
+        break;
+      }
+    }
+  }
+  return [...lo, ...hi].map((n) => `${n}${t.unit}`);
 }
 
 function sameTerm(a: string, b: string): boolean {
@@ -282,15 +338,14 @@ function buildDistractors(
 
   let candidates: string[];
   if (answer.kind === "number") {
-    const inMaterial = shuffle(
-      ctx.pool.filter((t) => t.kind === "number" && t.unit === answer.unit && t.value !== 1),
+    // 資料の中の同じ単位の別の数字（むずかしいでは、これと取り違えやすくする）
+    const others = shuffle(
+      ctx.pool.filter((t) => t.kind === "number" && t.unit === answer.unit),
       rand,
-    )
-      // 資料の中の別の数字も、正解とかけ離れていなければ使う
-      .filter((t) => t.value! <= answer.value! * 3 && t.value! * 3 >= answer.value!)
-      .map((t) => t.text);
-    const near = numberVariants(answer, difficulty);
-    candidates = difficulty === "hard" ? near : [...inMaterial.slice(0, 1), ...near];
+    ).map((t) => t.value!);
+    // 「大文字・小文字・数字・記号のうち（ ）」のように並べた物の数があれば、それを超える数は誤答にしない
+    const listed = isCountUnit(answer.unit) ? listedCount(sentence.slice(0, answer.index)) : 0;
+    candidates = numberVariants(answer, difficulty, rand, { max: listed || undefined, others });
   } else {
     // 名詞の空欄には、同じ種類（カタカナ語どうし・漢字の言葉どうし）の言葉だけを使う。
     // 漢字の言葉は、後ろに同じ助詞が続く言葉（同じような使われ方をしている言葉）に限る
@@ -315,42 +370,22 @@ function buildDistractors(
 /** 資料の文を「逆の意味」に書き換える規則。上から順に、最初に当てはまったものを使う */
 /** [当てはまる形, 書き換え後, この形の文には使わない（不自然になる）] */
 const FLIPS: [RegExp, string, RegExp?][] = [
+  // どの資料にも使える、汎用の書き換え規則。見本資料4本だけに用意した誤答の候補は materials.ts の distractorHints にあり、こちらより先に使う。
   // 書き換えは「研修担当がそのまま出題してよいと思える、自然な日本語」になるものだけを置く。
   // 「〜できます→できません」「〜場合があります→場合はありません」「必ず→できれば」のように、
   // 機械的に打ち消すと不自然・弱い文になる型は使わない（書き換えられない文は誤答に使わず、ほかの文や数字の問題にまわす）。
-  // ── 文の形ごと言い換えないと自然にならないもの（先に当てる） ──
-  [/悪気がなくても、受け取った側が苦痛を感じれば、ハラスメントになることがあります。?$/, "悪気がなければ、受け取った側が苦痛を感じても、ハラスメントにはなりません"],
-  [/は、上長のほか、[^、。]+でも受け付けています。?$/, "は、上長だけが受け付けています"],
-  [/での言動でも、([^。]+)は対象になります。?$/, "での言動は、$1でも対象になりません"],
+  // ── 文の形ごと言い換えるもの（先に当てる） ──
   [/も、([^。]+)と同じように扱います。?$/, "は、$1とは区別して扱います"],
-  [/も、(個人情報|ハラスメント)です。?$/, "は、$1にはあたりません"],
-  [/でも、本人以外には([^、。]+)を伝えません。?$/, "なら、$1を伝えてかまいません"],
-  [/聞かれても、答えてはいけません。?$/, "聞かれたら、答えてかまいません"],
-  [/短い時間でも必ず([^、。]+)します。?$/, "短い時間なら$1しなくてもかまいません"],
-  [/を、契約の前に必ず説明します。?$/, "を、契約のあとで説明します"],
-  [/は、お客様に出す前に、必ず上長の確認を受けてください。?$/, "は、上長の確認を受けずにお客様に出してかまいません"],
-  [/は、鍵のかかる書庫に保管します。?$/, "は、鍵をかけずに保管してかまいません"],
-  [/は、その業務に必要な人だけに付けます。?$/, "は、全社員に付けます"],
-  [/の範囲でだけ使います。?$/, "の範囲を超えて使ってもかまいません"],
-  [/は、最初から聞かないことが一番の対策です。?$/, "も、念のため聞いておくことが一番の対策です"],
-  [/を体から離さないようにしてください。?$/, "を体から離して置いてもかまいません"],
-  [/は、ごみ箱に捨てず、必ず[^。]+。?$/, "は、ほかの紙と同じようにごみ箱に捨ててかまいません"],
-  [/は、情報システム担当にデータの消去を依頼してください。?$/, "は、各自でデータを消せば、そのまま処分してかまいません"],
-  [/は、会社が用意した名刺管理の仕組みに登録してください。?$/, "は、各自の机の引き出しで保管してかまいません"],
-  [/は、パスワードに加えて[^。]+を必ず設定します。?$/, "は、パスワードだけでログインします"],
-  [/をつながないでください。?$/, "をつないでもかまいません"],
-  [/、その時点ですぐに/, "、1日探して見つからなければ"],
-  [/は、会社が許可したアプリの一覧から選んで入れます。?$/, "は、各自が自由に選んで入れてかまいません"],
-  [/についても、一人で抱え込まずに上長に報告してください。?$/, "については、担当者が自分で対応し、上長に報告する必要はありません"],
-  [/を見かけたら、声をかけて相談窓口を紹介してください。?$/, "を見かけても、本人から相談されるまでは声をかけないでください"],
-  [/一言でも、相手がどう受け取るかを考えてから話してください。?$/, "一言なら、相手がどう受け取るかを気にしなくてかまいません"],
-  [/を見かけたら、その場で注意することも管理職の役割です。?$/, "を見かけても、管理職は本人どうしに任せ、口を出しません"],
-  [/ときも、その場で約束せず、[^。]+。?$/, "ときは、その場で約束してかまいません"],
-  [/1か月あたり/, "1年あたり"],
-  [/、できるだけ早く記録してください。?$/, "、しばらく様子を見てから記録してください"],
-  [/場合は、担当を交代したり、上長が対応を引き継いだりします。?$/, "場合でも、最初の担当者が最後まで一人で対応します"],
-  [/はいつでも社内の共有フォルダで読めます。?$/, "は研修の当日にだけ配られ、あとから読むことはできません"],
+  // 「聞かれても、答えてはいけません」→「聞かれたら、答えてかまいません」（「聞かれても、答えてもかまいません」は読みにくい）
+  [/([かさたなまらがばわ])れても、([^、。]+)てはいけません。?$/, "$1れたら、$2てかまいません"],
   // ── 文末の決まった言い方 ──
+  // 「〜してはいけません」は、まず「〜します」と言い切る形にする。「〜てもかまいません」ばかりだと、
+  // 許可の形の選択肢がいつも誤答（または「合わないもの」の答え）になり、言い回しだけで答えが分かるため。
+  // 動詞の形が確実に分かるもの（〜して／〜えて・〜けて…／〜いて）だけ。「〜って」「〜んで」は元の動詞が分からないので許可の形にする
+  // 「たとえ〜の依頼でも教えてはいけません」→「依頼でも教えます」は意味が通らないので、「でも」「ても」の文は許可の形にする
+  [/してはいけません。?$/, "します", /でも|ても、/],
+  [/([えけせてねへめれげぜでべ])てはいけません。?$/, "$1ます", /でも|ても、/],
+  [/いてはいけません。?$/, "きます", /でも|ても、/],
   [/てはいけません。?$/, "てもかまいません"],
   [/ことは禁止です。?$/, "ことは認められています"],
   [/ことは禁止されています。?$/, "ことは認められています"],
@@ -361,7 +396,6 @@ const FLIPS: [RegExp, string, RegExp?][] = [
   [/ことも避けます。?$/, "ことは問題ありません"],
   [/守ります。?$/, "守らなくてもかまいません"],
   [/として扱います。?$/, "としては扱いません"],
-  [/(ハラスメント|個人情報)です。?$/, "$1にはあたりません"],
   // 「氏名だけでなく、〜なども個人情報にあたります」を打ち消すと、前半と食い違って読みにくい
   [/にあたります。?$/, "にはあたりません", /だけでなく/],
   [/ことがあります。?$/, "ことはありません"],
@@ -369,25 +403,24 @@ const FLIPS: [RegExp, string, RegExp?][] = [
   [/減ります。?$/, "増えます"],
   [/増えます。?$/, "減ります"],
   [/やすくなります。?$/, "にくくなります"],
-  [/を付けて([^、。]*)ます。?$/, "を付けずに$1てかまいません"],
-  // 「共有フォルダにだけ保存し、USBメモリには保存しません」を「保存します」にすると前半と食い違うので、「だけ」の文は除く。
-  // 「〜でも〜しません」も、打ち消すと「〜でも〜します」となり意味が通らないので除く。
-  // 「迷う必要はありません」→「迷う必要はあります」も不自然なので除く
-  [/ません。?$/, "ます", /だけ|でも|必要はありません/],
+  [/を付けて([^、。]*)ます。?$/, "を付けずに$1ます"],
+  // 「〜ません」→「〜ます」は、ただ打ち消すと意味が通らなくなる文を除く。
+  // ・「共有フォルダにだけ保存し、USBメモリには保存しません」（「にだけ」）→「保存します」だと前半と食い違う
+  // ・「〜でも〜しません」→「〜でも〜します」
+  // ・「迷う必要はありません」→「迷う必要はあります」
+  // ・「部長の承認がないと受け付けません」→「承認がないと受け付けます」のような、条件つきの打ち消し
+  //   （〜ないと／〜なければ／〜ない限り／〜しか／〜以外）
+  [/ません。?$/, "ます", /にだけ|でだけ|だけを|だけに|だけで|でも|必要はありません|ないと|なければ|ない限り|しか|以外/],
   // ── 文の途中の言葉 ──
-  [/自分で判断せず、/, "まず自分で判断してから、"],
-  [/したりする前に、まず/, "したりしたあとで、"],
   [/の(確認|承認|許可)を受けてから/, "の$1を受けずに"],
-  [/の(確認|承認|許可)を受けて/, "の$1を受けずに"],
+  // 「確認を受けてください」は「受けずにください」となり不自然なので除く
+  [/の(確認|承認|許可)を受けて(?!ください)/, "の$1を受けずに"],
   [/(確認|本人確認)をしてから/, "$1をせずに"],
-  [/は開かずに、/, "は開いて中身を確かめてから、"],
   [/事前に/, "事後に"],
   [/その日のうちに/, "1週間以内に"],
   [/当日中に/, "翌週中に"],
   [/別の手段で/, "同じ手段で"],
   [/([一-龠々]+)ではなく([一-龠々]+)/, "$2ではなく$1"],
-  [/半年前/, "1か月前"],
-  [/本体の正面/, "本体の裏側"],
 ];
 
 const LEAD_RE = /^(?:たとえば|また|一方で|ただし|なお)、/;
@@ -396,9 +429,16 @@ function asChoice(sentence: string): string {
   return sentence.replace(LEAD_RE, "").replace(/。$/, "");
 }
 
-/** 文を逆の意味に書き換える。書き換えられない文は null */
-export function flipRule(sentence: string): string | null {
+/**
+ * 文を逆の意味に書き換える。書き換えられない文は null。
+ * hints（見本資料ごとの誤答の候補）があれば、汎用の規則より先に使う
+ */
+export function flipRule(sentence: string, hints: [string, string][] = []): string | null {
   const base = sentence.replace(LEAD_RE, "");
+  const plain = base.replace(/。$/, "");
+  for (const [from, to] of hints) {
+    if (plain.includes(from)) return plain.replace(from, to);
+  }
   // 「悪口も言いません」を「悪口も言います」にすると日本語として不自然なので、書き換えない
   if (/も[^、。]*ません。?$/.test(base) && !/てはいけません。?$|必要はありません。?$/.test(base)) return null;
   for (const [re, rep, skip] of FLIPS) {
@@ -420,17 +460,33 @@ export function flipRule(sentence: string): string | null {
  */
 function flipNumber(base: string): string | null {
   const t = extractTerms(base)
-    .filter((x) => x.kind === "number" && blankable(x, base) && !insideQuote(base, x.index))
+    .filter((x) => x.kind === "number" && blankable(x, base, true) && !insideQuote(base, x.index))
     .pop();
   if (!t) return null;
   const v = t.value!;
-  const step = v < 10 ? 1 : v < 20 ? 4 : v < 100 ? 30 : 100;
+  const step = v < 10 ? 1 : v < 20 ? 4 : v < 100 ? 30 : v < 1000 ? 100 : 2000;
   const n = t.unit!.endsWith("以上") ? v - step : t.unit!.endsWith("以内") ? v + step : v + step;
   if (n <= 0) return null;
   return `${base.slice(0, t.index)}${n}${t.unit}${base.slice(t.index + t.text.length)}`.replace(/。$/, "");
 }
 
 // ───────── 大事そうな文の点数 ─────────
+
+/** 「〜てもかまいません」のような、許可・容認の形で終わる文 */
+const PERMIT_RE = /(?:かまいません|認められています|問題ありません|必要はありません)$/;
+
+/**
+ * 難しさで変えるもの（見本の返答）。
+ * ・やさしい：空欄の問題を多めに、きまりの問題は「正しいもの」を選ぶ形。数字の誤答は幅を広く（numberVariants）
+ * ・ふつう：きまりの問題を3割ほど、「正しいもの」と「合わないもの」を交互に
+ * ・むずかしい：きまりの問題を半分ほど、「合わないもの」を多めに。誤答の文は同じ項目から選び、数字の誤答に資料の別の数字を混ぜる
+ */
+type Plan = { ruleShare: number; askWrong: (nRule: number) => boolean; nears: number[]; sameSectionFirst: boolean };
+const DIFFICULTY_PLAN: Record<Difficulty, Plan> = {
+  easy: { ruleShare: 0.25, askWrong: () => false, nears: [1, 2, 3], sameSectionFirst: false },
+  normal: { ruleShare: 0.35, askWrong: (n) => n % 2 === 1, nears: [1, 2, 3], sameSectionFirst: false },
+  hard: { ruleShare: 0.5, askWrong: (n) => n % 3 !== 2, nears: [0, 1, 2, 3], sameSectionFirst: true },
+};
 
 const RULE_WORDS = /必ず|禁止|いけません|しません|ません|以内|までに|原則|ください|徹底/;
 
@@ -468,8 +524,9 @@ const META_RE = /この資料|まとめます|できるよう、|研修用の架
 /** 前の文を読まないと何の話か分からない文（「その場で〜」「出したあとは〜」「〜ためです」） */
 // 「上司から部下だけでなく、〜でも起こります」「本人の同意がない限り、〜教えてはいけません」のように、
 // 何が起こるのか・何を教えないのかが前の文にしか書かれていない文も除く。
-// 「他社の商品の悪口も言いません」のような、「も」で前の文に続く短い文も、1文だけでは何の話か分からない
-const CONTEXTLESS_RE = /^(?:その|それ|これ|この|あの|次は|出したあと|同じ|各部署|本人の同意がない限り)|これに加えて|そのままにしておいて|当てはまります。$|ためです。$|でも起こります。$|^[^、。は]+も[^、。]*ません。$/;
+// 「他社の商品の悪口も言いません」のような、「も」で前の文に続く短い文も、1文だけでは何の話か分からない。
+// 「覚えきれない場合は、〜」「10分を超えても話がまとまらない場合は、〜」のように、短い条件で始まる文も、何の場合かが前の文にしか書かれていない
+const CONTEXTLESS_RE = /^(?:その|それ|これ|この|あの|次は|出したあと|同じ|各部署|本人の同意がない限り)|これに加えて|そのままにしておいて|当てはまります。$|ためです。$|でも起こります。$|^[^、。は]+も[^、。]*ません。$|^[^、。]{0,18}場合は、/;
 
 /**
  * 1文だけ取り出しても意味が通じるか。よくある質問の答え（「答：各部署で写しを持たないでください。」）は、
@@ -529,19 +586,37 @@ function buildQuiz(input: QuizInput, penalty: Map<string, number>): GeneratedQue
   for (let attempt = 0; attempt < 60; attempt++) {
     const qs = buildQuizOnce(input, penalty, attempt);
     if (qs.length > best.length) best = qs;
-    if (best.length >= input.count) break;
+    if (best.length >= input.count) return best;
+  }
+  // 難しさの組み立て方では文が足りないときは、「ふつう」の組み立て方で作る（数字の誤答の作り方など、ほかは元の難しさのまま）
+  if (input.difficulty !== "normal") {
+    for (let attempt = 0; attempt < 30; attempt++) {
+      const qs = buildQuizOnce(input, penalty, attempt, DIFFICULTY_PLAN.normal);
+      if (qs.length > best.length) best = qs;
+      if (best.length >= input.count) break;
+    }
   }
   return best;
 }
 
-function buildQuizOnce(input: QuizInput, penalty: Map<string, number>, attempt: number): GeneratedQuestion[] {
+function buildQuizOnce(input: QuizInput, penalty: Map<string, number>, attempt: number, planOverride?: Plan): GeneratedQuestion[] {
   const { body, count, difficulty } = input;
   const rand = mulberry32(
     hashString(`${body.length}:${body.slice(0, 200)}`) ^ (count * 7919) ^ (DIFF_SEED[difficulty] + (input.variant ?? 0) * 104729) ^ (attempt * 7777),
   );
   const all = splitSentences(body);
+  // 見本資料なら、資料ごとに用意した誤答の候補と、選択肢に使わない文を使う（貼り付けた資料では汎用の規則だけ）
+  const sampleMaterial = MATERIALS.find((m) => m.body === body);
+  const hints = sampleMaterial?.distractorHints ?? [];
+  const skipStarts = sampleMaterial?.contextlessSentences ?? [];
+  const flipCache = new Map<string, string | null>();
+  const flip = (text: string) => {
+    if (!flipCache.has(text)) flipCache.set(text, flipRule(text, hints));
+    return flipCache.get(text)!;
+  };
+  const plan = planOverride ?? DIFFICULTY_PLAN[difficulty];
   // 「この資料では…まとめます」のような資料の前置きは、問題にも選択肢にもしない
-  const sentences = all.filter((x) => !META_RE.test(x.text) && hasContext(body, x));
+  const sentences = all.filter((x) => !META_RE.test(x.text) && hasContext(body, x) && !skipStarts.some((p) => x.text.startsWith(p)));
   const pool: Term[] = [];
   const seenTerm = new Set<string>();
   for (const s of all) {
@@ -555,9 +630,12 @@ function buildQuizOnce(input: QuizInput, penalty: Map<string, number>, attempt: 
   }
   const ctx = { body, pool, siblings: siblingPairs(all) };
 
-  // 数字の問題は全体のおよそ半分まで。きまり・手順を問う問題を3割ほど入れる
-  const numberCap = Math.max(1, Math.floor(count / 2));
-  const ruleTarget = count >= 5 ? Math.max(2, Math.round(count * 0.3)) : count >= 3 ? 1 : 0;
+  // 数字の問題は全体のおよそ半分まで（最後に、実際にできた問題数でもう一度確かめる）。
+  // きまり・手順を問う問題の割合は難しさで変える（やさしい＝少なめ、むずかしい＝多め）
+  const numberCap = Math.max(1, Math.ceil(count / 2));
+  // きまりの問題は1問で文を4つ使うので、資料の文が足りず指定の数に届かないときは、後半の作り直しでは割合を少し下げる
+  const share = attempt >= 30 ? Math.max(0.25, plan.ruleShare - 0.15) : plan.ruleShare;
+  const ruleTarget = count >= 3 ? Math.max(1, Math.round(count * share)) : 0;
 
   const drafts: Draft[] = [];
   const usedSentences = new Set<number>();
@@ -568,7 +646,7 @@ function buildQuizOnce(input: QuizInput, penalty: Map<string, number>, attempt: 
   const choiceable = sentences.filter((s) => normalize(s.text).text.length <= 80);
   // きまりの文（逆の意味に書き換えられる文）
   const rules = shuffle(
-    choiceable.filter((s) => flipRule(s.text) !== null),
+    choiceable.filter((s) => flip(s.text) !== null),
     rand,
   );
   const usedPrompts = new Set<string>();
@@ -584,32 +662,52 @@ function buildQuizOnce(input: QuizInput, penalty: Map<string, number>, attempt: 
     // 「正しいもの」は書き換えた文を3つ使うので、書き換えられる文が残り少ないときは「合わないもの」で作る
     const rulesLeft = rules.filter((s) => !usedSentences.has(s.start)).length;
     const scarce = rulesLeft < 3 * (count - drafts.length);
-    const first = scarce || (difficulty === "easy" ? false : difficulty === "hard" ? nRule % 2 === 0 : nRule % 2 === 1);
-    return addRuleAs(first) || addRuleAs(!first);
+    const first = scarce || plan.askWrong(nRule);
+    // それでも作れないときだけ、許可の形の答えだけが浮く「合わないもの」も認める（問題数が足りなくなるのを防ぐ）
+    return addRuleAs(first) || addRuleAs(!first) || addRuleAs(true, true) || addRuleAs(false, true);
   };
-  const addRuleAs = (askWrong: boolean) => {
+  // それでも足りないときの最後の手段：離れた項目の文どうしでも組み合わせる（項目が4つ以上になるときは、問題文に項目名を出さない）
+  const addRuleWide = () => addRuleAs(true, true, true) || addRuleAs(false, true, true);
+  const addRuleAs = (askWrong: boolean, allowLonePermit = false, wide = false) => {
     // 問う文は「必ず」「〜してはいけません」のような、きまりらしい文を先にする
     // 「正しいもの」を選ぶ問題の答えは資料のとおりの文なので、書き換えられない文でもよい
+    // 「合わないもの」の答え（書き換えた文）は、「〜てもかまいません」のような許可の形より、
+    // 数字・期限・担当の取り違えを先に使う（許可の形の選択肢がいつも答えだと、言い回しだけで答えが分かるため）
     const targets = (askWrong ? rules : shuffle(choiceable, rand))
       .filter((s) => !usedSentences.has(s.start))
-      .sort((a, b) => (penalty.get(a.text) ?? 0) - (penalty.get(b.text) ?? 0) || Number(RULE_WORDS.test(b.text)) - Number(RULE_WORDS.test(a.text)));
-    for (const [target, near] of targets.flatMap((t) => [1, 2, 3].map((n) => [t, n] as const))) {
-      const answer = askWrong ? flipRule(target.text)! : asChoice(target.text);
+      .sort(
+        (a, b) =>
+          (penalty.get(a.text) ?? 0) - (penalty.get(b.text) ?? 0) ||
+          (askWrong ? Number(PERMIT_RE.test(flip(a.text)!)) - Number(PERMIT_RE.test(flip(b.text)!)) : 0) ||
+          Number(RULE_WORDS.test(b.text)) - Number(RULE_WORDS.test(a.text)),
+      );
+    // むずかしいでは、誤答を同じ項目の文に限る（同じ項目で作れなかった問題だけ、となりの項目まで広げる）
+    const nears = wide ? [99] : plan.nears;
+    const pairs = plan.sameSectionFirst ? nears.flatMap((n) => targets.map((t) => [t, n] as const)) : targets.flatMap((t) => nears.map((n) => [t, n] as const));
+    // 資料どおりの文に許可の形が1つもないのに、答えだけが許可の形になる「合わないもの」は作らない
+    const permitTrue = choiceable.some((s) => !usedSentences.has(s.start) && PERMIT_RE.test(asChoice(s.text)));
+    for (const [target, near] of pairs) {
+      const answer = askWrong ? flip(target.text)! : asChoice(target.text);
+      if (askWrong && PERMIT_RE.test(answer) && !permitTrue && !allowLonePermit) continue;
       // 誤答には、同じ項目か、となりの項目の文を使う（話題がそろい、消去法で選びにくくなる）。
       // 「正しいもの」を選ぶ問題では、誤答は逆の意味に書き換えた文。「合わないもの」を選ぶ問題では、資料のとおりの文。
       // どの文も、テスト全体で1回しか使わない（ある問題の選択肢が、別の問題の答えを教えてしまわないように）
       const sec = sectionOf(target.start);
       const pool = (askWrong ? choiceable : rules)
         .filter((s) => s !== target && !usedSentences.has(s.start) && Math.abs(sectionOf(s.start) - sec) <= near)
-        .map((s) => ({ s, text: askWrong ? asChoice(s.text) : flipRule(s.text)! }))
+        .map((s) => ({ s, text: askWrong ? asChoice(s.text) : flip(s.text)! }))
         .sort(
           (x, y) =>
+            // 答えが許可の形なら、資料どおりの選択肢にも許可の形の文を先に混ぜる
+            (askWrong && PERMIT_RE.test(answer) ? Number(PERMIT_RE.test(y.text)) - Number(PERMIT_RE.test(x.text)) : 0) ||
             Math.abs(sectionOf(x.s.start) - sec) - Math.abs(sectionOf(y.s.start) - sec) ||
             Math.abs(x.text.length - answer.length) - Math.abs(y.text.length - answer.length),
         );
       const picked: typeof pool = [];
       for (const c of pool) {
         if (picked.length === 3) break;
+        // 「正しいもの」の誤答に許可の形（〜てもかまいません）は1つまで。並ぶと、許可の形を消すだけで答えが絞れてしまう
+        if (!askWrong && !allowLonePermit && PERMIT_RE.test(c.text) && picked.some((p) => PERMIT_RE.test(p.text))) continue;
         if (balanced([answer, ...picked.map((p) => p.text), c.text])) picked.push(c);
       }
       if (picked.length < 3) continue;
@@ -618,8 +716,8 @@ function buildQuizOnce(input: QuizInput, penalty: Map<string, number>, attempt: 
       const headings = [...new Set([target, ...others.map((o) => o.s)].sort((x, y) => x.start - y.start).map((x) => headingOf(body, x.start)))]
         .filter((h): h is string => !!h)
         .map((h) => `「${h.replace(/^\d+[.．]\s*/, "")}」`);
-      if (headings.length > 3) continue;
-      const about = headings.length ? `${headings.join("")}の項目について、` : "";
+      if (headings.length > 3 && !wide) continue;
+      const about = headings.length > 3 ? "資料全体について、" : headings.length ? `${headings.join("")}の項目について、` : "";
       const prompt = askWrong ? `${about}資料の内容と合わないものはどれですか。` : `${about}正しいものはどれですか。`;
       if (usedPrompts.has(prompt)) continue;
       usedPrompts.add(prompt);
@@ -718,10 +816,18 @@ function buildQuizOnce(input: QuizInput, penalty: Map<string, number>, attempt: 
   while (drafts.length < count && addRule()) {
     /* 追加し続ける */
   }
-  addBlanks(count, Math.ceil(count * 0.6));
+  addBlanks(count, numberCap);
+  while (drafts.length < count && addRuleWide()) {
+    /* 追加し続ける */
+  }
 
   drafts.sort((a, b) => a.start - b.start);
-  const chosen = drafts.slice(0, count);
+  let chosen = drafts.slice(0, count);
+  // 数字の問題は、実際にできた問題数のおよそ半分まで（短い資料で4問しかできないときに、3問が数字にならないように）
+  while (chosen.filter((d) => d.kind === "number").length > Math.ceil(chosen.length / 2)) {
+    const lastNumber = chosen.map((d) => d.kind).lastIndexOf("number");
+    chosen = chosen.filter((_, i) => i !== lastNumber);
+  }
 
   // 正解の位置が偏らないよう、A〜Dを順番に割り当ててから並びを混ぜる
   const positions = shuffle(
@@ -817,7 +923,8 @@ export function sampleFollowUp(test: Test, stats: TestStats, people: Person[]): 
   // 平均より大きく低い部署
   const deptFindings: Finding[] = [];
   const deptActions: string[] = [];
-  const worstDept = stats.departments[0];
+  // 受講者が DEPT_MIN_LEARNERS 人（3人）に満たない部署は、1〜2人の点数だけで「低め」と言い切らない
+  const worstDept = stats.departments.find((d) => d.learners >= DEPT_MIN_LEARNERS);
   if (worstDept && stats.departments.length >= 2 && worstDept.avgScore <= stats.avgScore - 8 && !gapFindings.some((f) => f.title.startsWith(worstDept.department))) {
     const name = worstDept.department;
     const ids = new Set(people.filter((p) => p.department === name).map((p) => p.id));

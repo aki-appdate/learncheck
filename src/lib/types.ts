@@ -20,6 +20,13 @@ export type Material = {
   /** 受講の対象にする部署。null なら全員 */
   targetDepartments: string[] | null;
   body: string;
+  /**
+   * 見本資料だけに用意した、誤答の候補（[資料の言い回し, 誤答にするときの言い回し]）。
+   * 見本の返答（AIを使わないとき）で、汎用の書き換え規則より先に使う。貼り付けた資料にはない
+   */
+  distractorHints?: [string, string][];
+  /** 見本資料のうち、前の文を読まないと意味が通らないため選択肢に使わない文（文の書き出し） */
+  contextlessSentences?: string[];
 };
 
 export type Difficulty = "easy" | "normal" | "hard";

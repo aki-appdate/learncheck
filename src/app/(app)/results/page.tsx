@@ -6,7 +6,7 @@ import { RoleGate } from "@/components/RoleGate";
 import { FollowUpPanel } from "@/components/results/FollowUpPanel";
 import { QuestionDetail } from "@/components/results/QuestionDetail";
 import { cx, Icon, PageHead, QNo, RateBar } from "@/components/ui";
-import { computeTestStats, LOW_RATE, MIN_LEARNERS, needsFollowUp, pct } from "@/lib/analytics";
+import { computeTestStats, DEPT_MIN_LEARNERS, LOW_RATE, MIN_LEARNERS, needsFollowUp, pct } from "@/lib/analytics";
 import { formatDateJa } from "@/lib/dates";
 import { CHOICE_MARKS } from "@/lib/quality";
 
@@ -110,10 +110,20 @@ function Results() {
             {judged && <span className="text-sm font-normal">問</span>}
           </p>
           <p className="mt-2 text-xs text-ink-muted">
-            {tooFew ? `受講者が少ないため、まだ判断しません（${MIN_LEARNERS}人から）` : `正答率${pct(LOW_RATE)}未満`}
+            {tooFew ? `${MIN_LEARNERS}人から判断します` : `正答率${pct(LOW_RATE)}未満`}
           </p>
         </div>
       </section>
+
+      {/* 3人未満のときの説明は、ここ1か所にまとめる（要約・問題一覧・誤答の表・提案で同じ説明をくり返さない） */}
+      {tooFew && (
+        <p className="-mt-4 flex gap-2 border-l-[3px] border-warn bg-warn-soft px-4 py-3 text-sm leading-relaxed text-ink-soft" role="note">
+          <Icon name="alert" className="mt-0.5 size-4 shrink-0 text-warn" />
+          <span>
+            受講したのはまだ{stats.learnerCount}人です。{MIN_LEARNERS}人未満のうちは、1人の答えで正答率が0%にも100%にもなるため、「要フォロー」「よく選ばれた誤答」「フォローの提案」で傾向を言い切りません。
+          </span>
+        </p>
+      )}
 
       <FollowUpPanel key={`${test.id}:${stats.learnerCount}`} test={test} stats={stats} onOpenQuestion={setOpenQ} />
 
@@ -127,11 +137,7 @@ function Results() {
           </p>
         </div>
         {!has && <p className="border-b border-line py-4 text-sm text-ink-muted">まだ受講者がいません。受講者が受けると、ここに問題ごとの正答率が出ます。</p>}
-        {tooFew && (
-          <p className="border-b border-line py-3 text-sm text-ink-muted">
-            受講したのはまだ{stats.learnerCount}人です。受講者が少ないため、まだ「要フォロー」かどうかは判断しません（{MIN_LEARNERS}人以上で判断します）。
-          </p>
-        )}
+
         <ul className="divide-y divide-line border-b border-line">
           {stats.questions.map((s) => {
             const q = test.questions[s.index];
@@ -180,7 +186,9 @@ function Results() {
             <h2 className="text-lg font-bold">よく選ばれた誤答</h2>
             <span className="text-xs text-ink-muted">選んだ人の多い順</span>
           </div>
-          {stats.commonWrong.length ? (
+          {tooFew ? (
+            <p className="border-b border-line py-4 text-sm text-ink-muted">受講者が{MIN_LEARNERS}人になったら出します。</p>
+          ) : stats.commonWrong.length ? (
             <ul className="divide-y divide-line border-b border-line">
               {stats.commonWrong.map((w) => {
                 const q = test.questions.find((x) => x.id === w.questionId)!;
@@ -206,7 +214,7 @@ function Results() {
               })}
             </ul>
           ) : (
-            <p className="border-b border-line py-4 text-sm text-ink-muted">誤答はまだありません。</p>
+            <p className="border-b border-line py-4 text-sm text-ink-muted">2人以上が選んだ誤答はまだありません。</p>
           )}
         </section>
 
@@ -228,7 +236,8 @@ function Results() {
                 </thead>
                 <tbody>
                   {stats.departments.map((d) => {
-                    const weak = d.avgScore <= stats.avgScore - 8;
+                    // 受講者が3人に満たない部署は、平均点が低くても「低い」と印を付けない
+                    const weak = d.learners >= DEPT_MIN_LEARNERS && d.avgScore <= stats.avgScore - 8;
                     return (
                       <tr key={d.department} className="border-b border-line">
                         <td className="py-2.5 pr-3 font-bold leading-snug">{d.department}</td>
@@ -239,6 +248,7 @@ function Results() {
                           {Math.round(d.avgScore)}点
                         </td>
                         <td className="py-2.5 pl-3">
+                          {!d.weakest && <span className="text-ink-muted">—</span>}
                           {d.weakest && (
                             <button className="text-left font-bold text-brand underline decoration-1 underline-offset-4" onClick={() => setOpenQ(d.weakest!.questionId)}>
                               第{qNo(d.weakest.questionId)}問<span className="num font-normal">（{pct(d.weakest.correctRate)}）</span>

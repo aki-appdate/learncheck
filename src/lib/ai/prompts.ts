@@ -1,5 +1,5 @@
 import { CHOICE_MARKS } from "../quality";
-import { DIFFICULTY_LABEL } from "../labels";
+import { DIFFICULTY_HINT, DIFFICULTY_LABEL } from "../labels";
 import { DEPT_GAP, DEPT_MIN_LEARNERS, pct, type TestStats } from "../analytics";
 import type { Difficulty, Person, Test } from "../types";
 
@@ -23,7 +23,7 @@ export const QUIZ_SYSTEM = `あなたは企業の研修担当を手伝うアシ�
 export function buildQuizPrompt(input: { title: string; body: string; count: number; difficulty: Difficulty; variant?: number }): string {
   const again = input.variant ? `\n作り直し: ${input.variant}回目。前に作った問題とは、資料の別の箇所・別の聞き方で作る。` : "";
   return `作る問題の数: ${input.count}問
-難しさ: ${DIFFICULTY_LABEL[input.difficulty]}（difficulty には "${input.difficulty}" を入れる）${again}
+難しさ: ${DIFFICULTY_LABEL[input.difficulty]}（difficulty には "${input.difficulty}" を入れる）。${DIFFICULTY_HINT[input.difficulty]}。${again}
 
 研修資料「${input.title}」:
 <<<資料ここから

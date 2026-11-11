@@ -81,7 +81,17 @@ function DraftEditor({ test, onDeleted }: { test: Test; onDeleted: () => void })
         title: title.trim() || test.title,
         questions: r.value.map((q, i) => ({ ...q, id: `${test.id}-v${variant}-q${String(i + 1).padStart(2, "0")}`, review: "pending", edited: false })),
         aiSource: r.source,
-        note: [r.note, r.value.length < gen.count ? `資料の長さの都合で、${r.value.length}問だけ作りました。` : null].filter(Boolean).join(" ") || null,
+        note:
+          [
+            r.note,
+            r.value.length < gen.count ? `資料の長さの都合で、${r.value.length}問だけ作りました。` : null,
+            // 短い資料では、問題にできる文が少なく、作り直しても同じ文からの問題が多くなる（隠さずに知らせる）
+            sameSource(test.questions, r.value) * 2 >= r.value.length
+              ? `資料が短いため、${r.value.length}問中${sameSource(test.questions, r.value)}問は、前の案と同じ文から作った問題です。`
+              : null,
+          ]
+            .filter(Boolean)
+            .join(" ") || null,
         generation: { ...gen, variant },
       });
     } finally {
@@ -309,4 +319,10 @@ function PublishedView({ test }: { test: Test }) {
       </ol>
     </Card>
   );
+}
+
+/** 作り直した問題のうち、前の案と同じ根拠の文から作った問題の数 */
+function sameSource(before: { quote: string }[], after: { quote: string }[]): number {
+  const old = new Set(before.map((q) => q.quote));
+  return after.filter((q) => old.has(q.quote)).length;
 }

@@ -197,3 +197,22 @@ describe("pct", () => {
     expect(pct(1)).toBe("100%");
   });
 });
+
+describe("少人数のときの言い方（3回目のチェックの指摘）", () => {
+  it("全員が正解した部署には「一番間違いが多い問題」を出さない", () => {
+    const s = computeTestStats(TEST, [att("1", "a", [0, 1], "2026-11-02T00:00:00Z")], PEOPLE);
+    expect(s.departments[0]).toMatchObject({ department: "営業", avgScore: 100, weakest: null });
+  });
+
+  it("1人しか選んでいない誤答は「よく選ばれた誤答」に入れず、同じ人数で並んだ誤答は一番にしない", () => {
+    // q1：b と c を1人ずつ（同じ人数）。q2：d を2人
+    const s = computeTestStats(
+      TEST,
+      [att("1", "a", [1, 3], "2026-11-02T00:00:00Z"), att("2", "b", [2, 3], "2026-11-02T00:00:00Z"), att("3", "c", [0, 1], "2026-11-02T00:00:00Z")],
+      PEOPLE,
+    );
+    expect(s.questions[0].topWrong).toBeNull();
+    expect(s.questions[1].topWrong).toMatchObject({ choice: 3, count: 2 });
+    expect(s.commonWrong.map((w) => `${w.questionId}:${w.choice}`)).toEqual(["q2:3"]);
+  });
+});

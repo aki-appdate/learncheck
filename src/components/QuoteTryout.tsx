@@ -39,7 +39,10 @@ export function QuoteTryout() {
   const [text, setText] = useState(EXAMPLES[2].text);
   const example = EXAMPLES[picked];
   const edited = text !== example.text;
-  const found = findQuote(MATERIAL.body, text).found;
+  const match = findQuote(MATERIAL.body, text);
+  const found = match.found;
+  // 短すぎる・空のときは「見つからない」とは言わない（照らし合わせ自体をしていないため）
+  const notChecked = !match.found && match.reason !== "not_found";
 
   return (
     <div className="min-w-0">
@@ -74,9 +77,11 @@ export function QuoteTryout() {
         />
       </label>
 
-      <p className={cx("mt-1 text-xs leading-relaxed", found ? "text-ink-soft" : "text-bad")} aria-live="polite">
+      <p className={cx("mt-1 text-xs leading-relaxed", found || notChecked ? "text-ink-soft" : "text-bad")} aria-live="polite">
         {edited
-          ? found
+          ? notChecked
+            ? "短い言葉や空の文は、照らし合わせをしません（理由は下に出ます）。"
+            : found
             ? "書き換えた文は、資料の中にあります。"
             : "書き換えた文は、資料の中に見つかりません。1文字でも言い回しが違えば、見つからないと扱います。"
           : example.note}
