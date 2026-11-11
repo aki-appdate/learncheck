@@ -244,7 +244,10 @@ function Result({ test, attempt, onExit, onRetry }: { test: Test; attempt: Attem
                 {ok ? "○" : "×"}
               </span>
               <span className="min-w-0 flex-1">
-                <span className="text-xs text-ink-muted">第{i + 1}問</span>
+                <span className="text-xs text-ink-muted">
+                  <span className="sr-only">第{i + 1}問</span>
+                  <span aria-hidden>問{i + 1}</span>
+                </span>
                 <span className="block leading-snug">{q.prompt.split("\n").at(-1)}</span>
                 {!ok && (
                   <span className="mt-1.5 grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5 text-xs leading-relaxed">

@@ -205,7 +205,10 @@ function Results() {
                 return (
                   <li key={`${w.questionId}:${w.choice}`}>
                     <button className="flex w-full items-start gap-3 py-3 text-left text-sm hover:bg-surface" onClick={() => setOpenQ(w.questionId)}>
-                      <span className="w-12 shrink-0 pt-0.5 text-xs text-ink-muted">第{qNo(w.questionId)}問</span>
+                      <span className="w-12 shrink-0 pt-0.5 text-xs text-ink-muted">
+                        <span className="sr-only">第{qNo(w.questionId)}問</span>
+                        <span aria-hidden>問{qNo(w.questionId)}</span>
+                      </span>
                       <span className="min-w-0 flex-1">
                         <span className="font-bold">
                           {CHOICE_MARKS[w.choice]}　{q.choices[w.choice]}
