@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { Suspense, useMemo, useState } from "react";
 import { useApp } from "@/components/AppProvider";
 import { RoleGate } from "@/components/RoleGate";
 import { FollowUpPanel } from "@/components/results/FollowUpPanel";
@@ -13,7 +14,10 @@ import { CHOICE_MARKS } from "@/lib/quality";
 export default function ResultsPage() {
   return (
     <RoleGate role="trainer">
-      <Results />
+      {/* URLのテスト指定を読むため（静的に書き出すページでは Suspense で包む決まり） */}
+      <Suspense>
+        <Results />
+      </Suspense>
     </RoleGate>
   );
 }
@@ -21,7 +25,10 @@ export default function ResultsPage() {
 function Results() {
   const { tests, attempts, people } = useApp();
   const published = useMemo(() => tests.filter((t) => t.status === "published").reverse(), [tests]);
-  const [testId, setTestId] = useState<string | null>(null);
+  // 「このテストの結果を見る」（公開済みテストの画面）から来たときは、URLのテストを開く
+  const fromUrl = useSearchParams().get("test");
+  const [picked, setTestId] = useState<string | null>(null);
+  const testId = picked ?? fromUrl;
   const [openQ, setOpenQ] = useState<string | null>(null);
   const test = published.find((t) => t.id === testId) ?? published[0];
 
@@ -54,16 +61,20 @@ function Results() {
           <label className="flex w-full flex-col gap-1 sm:w-auto">
             <span className="label">見るテスト</span>
             <select
-              className="w-full rounded-[3px] border border-line-strong bg-surface py-2 pl-3 pr-8 text-sm font-bold sm:w-80"
+              className="w-full rounded-[3px] border border-line-strong bg-surface py-2 pl-3 pr-8 text-sm font-bold sm:w-[27rem]"
               value={test.id}
               onChange={(e) => {
                 setTestId(e.target.value);
                 setOpenQ(null);
+                // 再読み込みや共有のときも同じテストが開くように、選んだテストをURLに残す
+                window.history.replaceState(null, "", `?test=${encodeURIComponent(e.target.value)}`);
               }}
             >
               {published.map((t) => (
                 <option key={t.id} value={t.id}>
+                  {/* 同じ資料から作ったテストは名前が同じになるので、公開日を添えて見分ける */}
                   {t.title}
+                  {t.publishedAt ? `・${formatDateJa(t.publishedAt)} 公開` : ""}
                 </option>
               ))}
             </select>
@@ -102,7 +113,7 @@ function Results() {
           </p>
           <p className="mt-2 text-xs text-ink-muted">全{test.questions.length}問正解</p>
         </div>
-        <div className={cx("px-5 py-4", judged && lowCount ? "bg-bad-soft" : "bg-surface")}>
+        <div className={cx("col-span-2 px-5 py-4 md:col-span-1", judged && lowCount ? "bg-bad-soft" : "bg-surface")}>
           <p className="label">要フォローの問題</p>
           <p className={cx("mt-1 flex items-center gap-1.5 text-[26px] font-bold leading-tight", judged && lowCount ? "text-bad" : undefined)}>
             {judged && lowCount > 0 && <Icon name="alert" className="size-5" />}
@@ -130,7 +141,7 @@ function Results() {
       {/* 問題ごとの正答率 */}
       <section>
         <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-1 border-b border-ink pb-2">
-          <h2 className="text-lg font-bold">問題ごとの正答率</h2>
+          <h2 className="whitespace-nowrap text-lg font-bold">問題ごとの正答率</h2>
           <p className="flex items-center gap-2 text-xs text-ink-muted">
             <span className="inline-block h-3 w-px bg-ink-muted" aria-hidden />
             縦線＝{pct(LOW_RATE)}。{MIN_LEARNERS}人以上が受けて下回る問題は「要フォロー」。押すと選択肢ごとの人数
@@ -145,7 +156,7 @@ function Results() {
             return (
               <li key={s.questionId}>
                 <button
-                  className="grid w-full grid-cols-[2.75rem_1fr] items-center gap-x-3 gap-y-2 py-3 text-left hover:bg-surface sm:grid-cols-[2.75rem_1fr_15rem_3.5rem] sm:pr-2"
+                  className="grid w-full grid-cols-[2.75rem_1fr] items-center gap-x-3 gap-y-2 py-3 text-left hover:bg-surface sm:grid-cols-[2.75rem_minmax(0,1fr)_15rem_3.5rem] xl:grid-cols-[2.75rem_minmax(0,1fr)_22rem_3.5rem] sm:pr-2"
                   onClick={() => setOpenQ(s.questionId)}
                 >
                   <QNo n={s.index + 1} className={cx("pl-1", low && "text-bad")} />
@@ -182,8 +193,8 @@ function Results() {
 
       <div className="grid grid-cols-1 gap-x-10 gap-y-8 lg:grid-cols-2">
         <section>
-          <div className="flex items-end justify-between border-b border-ink pb-2">
-            <h2 className="text-lg font-bold">よく選ばれた誤答</h2>
+          <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-0.5 border-b border-ink pb-2">
+            <h2 className="whitespace-nowrap text-lg font-bold">よく選ばれた誤答</h2>
             <span className="text-xs text-ink-muted">選んだ人の多い順</span>
           </div>
           {tooFew ? (
@@ -219,19 +230,22 @@ function Results() {
         </section>
 
         <section>
-          <div className="flex items-end justify-between border-b border-ink pb-2">
-            <h2 className="text-lg font-bold">部署別の弱点</h2>
+          <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-0.5 border-b border-ink pb-2">
+            <h2 className="whitespace-nowrap text-lg font-bold">部署別の弱点</h2>
             <span className="text-xs text-ink-muted">平均点の低い順・一番間違いが多い問題は{DEPT_MIN_LEARNERS}人から</span>
           </div>
           {stats.departments.length ? (
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[22rem] text-sm">
+              <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-line text-left text-xs text-ink-muted">
                     <th className="py-2 pr-3 font-normal">部署</th>
-                    <th className="whitespace-nowrap px-3 py-2 text-right font-normal">受講</th>
+                    <th className="hidden whitespace-nowrap px-3 py-2 text-right font-normal sm:table-cell">受講</th>
                     <th className="whitespace-nowrap px-3 py-2 text-right font-normal">平均点</th>
-                    <th className="py-2 pl-3 font-normal">一番間違いが多い問題</th>
+                    <th className="whitespace-nowrap py-2 pl-3 font-normal">
+                      <span className="sm:hidden">一番低い問題</span>
+                      <span className="hidden sm:inline">一番間違いが多い問題</span>
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
@@ -240,8 +254,11 @@ function Results() {
                     const weak = d.learners >= DEPT_MIN_LEARNERS && d.avgScore <= stats.avgScore - 8;
                     return (
                       <tr key={d.department} className="border-b border-line">
-                        <td className="py-2.5 pr-3 font-bold leading-snug">{d.department}</td>
-                        <td className="num whitespace-nowrap px-3 py-2.5 text-right">{d.learners}人</td>
+                        <td className="py-2.5 pr-3 leading-snug">
+                          <span className="font-bold [word-break:keep-all]">{d.department}</span>
+                          <span className="num block text-xs text-ink-muted sm:hidden">{d.learners}人が受講</span>
+                        </td>
+                        <td className="num hidden whitespace-nowrap px-3 py-2.5 text-right sm:table-cell">{d.learners}人</td>
                         <td className={cx("num whitespace-nowrap px-3 py-2.5 text-right", weak && "font-bold text-bad")}>
                           {weak && <Icon name="alert" className="mr-1 inline size-3.5 align-[-2px]" />}
                           {weak && <span className="sr-only">全体の平均より低い：</span>}
@@ -293,44 +310,54 @@ function Results() {
       </div>
 
       <section>
-        <div className="flex items-end justify-between border-b border-ink pb-2">
-          <h2 className="text-lg font-bold">受講者ごとの点数</h2>
+        <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-0.5 border-b border-ink pb-2">
+          <h2 className="whitespace-nowrap text-lg font-bold">受講者ごとの点数</h2>
           <span className="text-xs text-ink-muted">点数の高い順・未受講は最後</span>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[34rem] text-sm">
+          <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-line text-left text-xs text-ink-muted">
                 <th className="py-2 pr-3 font-normal">受講者</th>
-                <th className="px-3 py-2 font-normal">部署</th>
-                <th className="px-3 py-2 text-right font-normal">点数</th>
-                <th className="px-3 py-2 text-right font-normal">正解</th>
-                <th className="px-3 py-2 text-right font-normal">受講日</th>
-                <th className="py-2 pl-3 text-right font-normal">回数</th>
+                <th className="hidden px-3 py-2 font-normal sm:table-cell">部署</th>
+                <th className="py-2 pl-3 text-right font-normal sm:px-3">点数</th>
+                <th className="hidden px-3 py-2 text-right font-normal sm:table-cell">正解</th>
+                <th className="hidden px-3 py-2 text-right font-normal sm:table-cell">受講日</th>
+                <th className="hidden py-2 pl-3 text-right font-normal sm:table-cell">回数</th>
               </tr>
             </thead>
             <tbody>
               {stats.learners.map((l) => (
                 <tr key={l.learnerId} className="border-b border-line">
-                  <td className="py-2.5 pr-3 font-bold">{person(l.learnerId)?.name}</td>
-                  <td className="px-3 py-2.5 text-ink-soft">{person(l.learnerId)?.department}</td>
-                  <td className={cx("num whitespace-nowrap px-3 py-2.5 text-right", l.score < 60 && "font-bold text-bad")}>
+                  <td className="py-2.5 pr-3">
+                    <span className="font-bold">{person(l.learnerId)?.name}</span>
+                    {/* スマホでは列を減らし、部署・受講日・回数を名前の下にまとめる */}
+                    <span className="block text-xs text-ink-muted sm:hidden">
+                      {person(l.learnerId)?.department}・<span className="num">{formatDateJa(l.at)}</span>
+                      {l.attempts > 1 && `・${l.attempts}回`}
+                    </span>
+                  </td>
+                  <td className="hidden px-3 py-2.5 text-ink-soft sm:table-cell">{person(l.learnerId)?.department}</td>
+                  <td className={cx("num whitespace-nowrap py-2.5 pl-3 text-right align-top sm:px-3 sm:align-middle", l.score < 60 && "font-bold text-bad")}>
                     {l.score < 60 && <Icon name="alert" className="mr-1 inline size-3.5 align-[-2px]" />}
                     {l.score < 60 && <span className="sr-only">60点未満：</span>}
                     {l.score}点
                   </td>
-                  <td className="num px-3 py-2.5 text-right text-ink-soft">
+                  <td className="num hidden px-3 py-2.5 text-right text-ink-soft sm:table-cell">
                     {l.correct}/{l.total}
                   </td>
-                  <td className="num px-3 py-2.5 text-right text-ink-soft">{formatDateJa(l.at)}</td>
-                  <td className="num py-2.5 pl-3 text-right text-ink-soft">{l.attempts}回</td>
+                  <td className="num hidden px-3 py-2.5 text-right text-ink-soft sm:table-cell">{formatDateJa(l.at)}</td>
+                  <td className="num hidden py-2.5 pl-3 text-right text-ink-soft sm:table-cell">{l.attempts}回</td>
                 </tr>
               ))}
               {stats.notTaken.map((id) => (
                 <tr key={id} className="border-b border-line text-ink-muted">
-                  <td className="py-2.5 pr-3">{person(id)?.name}</td>
-                  <td className="px-3 py-2.5">{person(id)?.department}</td>
-                  <td className="py-2.5 pl-3 text-right" colSpan={4}>
+                  <td className="py-2.5 pr-3">
+                    {person(id)?.name}
+                    <span className="block text-xs sm:hidden">{person(id)?.department}</span>
+                  </td>
+                  <td className="hidden px-3 py-2.5 sm:table-cell">{person(id)?.department}</td>
+                  <td className="py-2.5 pl-3 text-right align-top sm:align-middle" colSpan={4}>
                     <span className="text-xs font-bold text-warn">未受講</span>
                   </td>
                 </tr>

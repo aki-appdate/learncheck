@@ -90,7 +90,7 @@ export function CreateTestForm({ onCreated }: { onCreated: (id: string) => void 
   const segBtn = (on: boolean) =>
     cx(
       "min-h-11 flex-1 rounded-[3px] border px-3 py-2 text-sm",
-      on ? "border-ink bg-ink font-bold text-white" : "border-line-strong bg-surface text-ink hover:border-ink-soft",
+      on ? "border-ink bg-surface font-bold text-ink shadow-[inset_0_0_0_1px_var(--color-ink)]" : "border-line-strong bg-surface text-ink-soft hover:border-ink-soft hover:text-ink",
     );
 
   return (
@@ -182,10 +182,13 @@ export function CreateTestForm({ onCreated }: { onCreated: (id: string) => void 
               ))}
             </fieldset>
             {estimate !== null && estimate < count && (
-              <p className="mt-2.5 text-xs leading-relaxed text-warn" role="status">
+              <p className="mt-3 flex gap-1.5 text-xs leading-relaxed text-warn" role="status">
+                <Icon name="alert" className="mt-px size-4" />
+                <span>
                 {estimate === 0
                   ? "この資料からは、見本の返答では問題を作れません。「。」で終わる文が多い資料を使ってください。"
                   : `この資料なら、見本の返答で作れるのは${estimate}問ほどです（1つの文はテスト全体で1回しか使わないため）。`}
+                </span>
               </p>
             )}
           </Step>
@@ -198,10 +201,17 @@ export function CreateTestForm({ onCreated }: { onCreated: (id: string) => void 
                 </button>
               ))}
             </fieldset>
-            <p className="mt-2.5 text-xs leading-relaxed text-ink-soft">{DIFFICULTY_HINT[difficulty]}。</p>
+            <p className="mt-3 text-[13px] leading-relaxed text-ink-soft" aria-live="polite">
+              <span className="font-bold text-ink">{DIFFICULTY_LABEL[difficulty]}：</span>
+              {DIFFICULTY_HINT[difficulty]}。
+            </p>
             {aiMode() === "sample" && (
-              <p className="mt-1 text-xs leading-relaxed text-ink-muted">
-                見本の返答では、作れる問題の形が資料の文しだいなので、難しさによる違いは小さくなることがあります。問題数が多いと、数をそろえるために「合わないもの」が中心になることもあります。
+              // 教科書の脚注のように「※」でぶら下げる（本文の説明と見分けられるように）
+              <p className="mt-2 grid grid-cols-[1em_1fr] gap-x-1 text-xs leading-relaxed text-ink-muted">
+                <span aria-hidden>※</span>
+                <span>
+                  見本の返答では、作れる問題の形が資料の文しだいなので、難しさによる違いは小さくなることがあります。問題数が多いと、数をそろえるために「合わないもの」が中心になることもあります。
+                </span>
               </p>
             )}
           </Step>

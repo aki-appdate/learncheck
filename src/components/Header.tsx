@@ -46,7 +46,11 @@ export function Header() {
           {resetting ? "戻しています…" : "データを初期化"}
         </button>
 
-        <nav className="col-span-2 -mx-4 flex border-t border-line px-4 lg:mx-0 lg:h-full lg:border-0 lg:px-0" aria-label="画面の切り替え">
+        {/* 受講者は画面が1つだけなので、スマホでは切り替えの行を出さない（画面の上を広く使う） */}
+        <nav
+          className={cx("col-span-2 -mx-4 border-t border-line px-4 lg:mx-0 lg:flex lg:h-full lg:border-0 lg:px-0", nav.length > 1 ? "flex" : "hidden")}
+          aria-label="画面の切り替え"
+        >
           {nav.map((n) => {
             const active = path.startsWith(n.href);
             return (
@@ -98,7 +102,7 @@ export function Header() {
         </div>
       </div>
       <p className="border-t border-line bg-paper px-4 py-1 text-center text-[11.5px] leading-5 text-ink-soft">
-        デモ版です。会社・人名・部署・研修資料などのデータはすべて架空です。
+        デモ版です。<span className="hidden sm:inline">会社・人名・部署・研修資料などの</span>データはすべて架空です。
       </p>
     </header>
   );

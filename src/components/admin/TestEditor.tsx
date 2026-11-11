@@ -275,7 +275,7 @@ function PublishedView({ test }: { test: Test }) {
             </dd>
           </div>
         </dl>
-        <Link href="/results" className={btn.secondary}>
+        <Link href={`/results?test=${encodeURIComponent(test.id)}`} className={btn.secondary}>
           <Icon name="chart" className="size-4" />
           このテストの結果を見る
         </Link>

@@ -1,5 +1,8 @@
 // 小さな見た目の部品。ボタン・印・アイコン・面の見た目をここで統一する（方針は docs/design.md）。
 
+"use client";
+
+import { useEffect, useId, useRef } from "react";
 import type { AiSource } from "@/lib/types";
 
 export function cx(...c: (string | false | null | undefined)[]): string {
@@ -127,19 +130,60 @@ export function ChoiceMark({ mark, tone = "plain" }: { mark: string; tone?: "pla
   );
 }
 
-/** 画面の上に重ねて出す小窓。外側を押すか「閉じる」で閉じる */
+/** 画面の上に重ねて出す小窓。外側を押す・「閉じる」・Escキーで閉じる。
+ *  開いたら小窓の中にフォーカスを移し、閉じたら開く前の場所に戻す（キーボードで迷わないように） */
 export function Modal({ title, onClose, children, wide }: { title: React.ReactNode; onClose: () => void; children: React.ReactNode; wide?: boolean }) {
+  const panelRef = useRef<HTMLDivElement>(null);
+  const titleId = useId();
+  const closeRef = useRef(onClose);
+  useEffect(() => {
+    closeRef.current = onClose;
+  });
+  useEffect(() => {
+    const before = document.activeElement as HTMLElement | null;
+    panelRef.current?.focus({ preventScroll: true });
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") closeRef.current();
+      // Tab で小窓の外へ出ないようにする
+      if (e.key === "Tab" && panelRef.current) {
+        const items = panelRef.current.querySelectorAll<HTMLElement>("button, a[href], input, select, textarea, summary, [tabindex]:not([tabindex='-1'])");
+        if (!items.length) return;
+        const first = items[0];
+        const last = items[items.length - 1];
+        if (e.shiftKey && (document.activeElement === first || document.activeElement === panelRef.current)) {
+          e.preventDefault();
+          last.focus();
+        } else if (!e.shiftKey && document.activeElement === last) {
+          e.preventDefault();
+          first.focus();
+        }
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    const overflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.body.style.overflow = overflow;
+      before?.focus?.({ preventScroll: true });
+    };
+  }, []);
   return (
-    <div className="fixed inset-0 z-40 grid place-items-end bg-ink/45 sm:place-items-center sm:p-4" onClick={onClose} role="dialog" aria-modal="true">
+    <div className="fixed inset-0 z-40 grid place-items-end bg-ink/45 sm:place-items-center sm:p-4" onClick={onClose} role="dialog" aria-modal="true" aria-labelledby={titleId}>
       <div
+        ref={panelRef}
+        tabIndex={-1}
         className={cx(
+          "outline-none",
           "max-h-[88vh] w-full overflow-y-auto rounded-t-[6px] border-t-4 border-brand bg-surface px-5 pb-5 pt-4 shadow-xl sm:rounded-[6px]",
           wide ? "sm:max-w-2xl" : "sm:max-w-md",
         )}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-start justify-between gap-3">
-          <h2 className="text-lg font-bold">{title}</h2>
+          <h2 id={titleId} className="text-lg font-bold">
+            {title}
+          </h2>
           <button className="-mr-2 grid size-9 shrink-0 place-items-center rounded-[3px] text-ink-soft hover:bg-canvas hover:text-ink" onClick={onClose} aria-label="閉じる">
             <Icon name="x" />
           </button>

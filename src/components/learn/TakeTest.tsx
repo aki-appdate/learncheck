@@ -71,7 +71,16 @@ export function TakeTest({ test, onExit }: { test: Test; onExit: () => void }) {
     window.scrollTo({ top: 0 });
   }
 
-  if (finished) return <Result test={test} attempt={finished} onExit={onExit} />;
+  function retry() {
+    setIndex(0);
+    setPicked(null);
+    setRevealed(false);
+    setAnswers([]);
+    setFinished(null);
+    window.scrollTo({ top: 0 });
+  }
+
+  if (finished) return <Result test={test} attempt={finished} onExit={onExit} onRetry={retry} />;
 
   const correct = picked === q.answerIndex;
   const results = answers.map((a) => test.questions.find((x) => x.id === a.questionId)?.answerIndex === a.choice);
@@ -191,7 +200,7 @@ export function TakeTest({ test, onExit }: { test: Test; onExit: () => void }) {
   );
 }
 
-function Result({ test, attempt, onExit }: { test: Test; attempt: Attempt; onExit: () => void }) {
+function Result({ test, attempt, onExit, onRetry }: { test: Test; attempt: Attempt; onExit: () => void; onRetry: () => void }) {
   const s = scoreAttempt(test, attempt.answers);
   const byId = new Map(attempt.answers.map((a) => [a.questionId, a.choice]));
   const wrong = s.total - s.correct;
@@ -222,7 +231,8 @@ function Result({ test, attempt, onExit }: { test: Test; attempt: Attempt; onExi
 
       <ul className="mt-6 divide-y divide-line border-y border-line">
         {test.questions.map((q, i) => {
-          const ok = byId.get(q.id) === q.answerIndex;
+          const mine = byId.get(q.id);
+          const ok = mine === q.answerIndex;
           return (
             <li key={q.id} className="flex gap-3 py-3 text-sm">
               <span className={cx("grid size-6 shrink-0 place-items-center rounded-[2px] text-xs font-bold text-white", ok ? "bg-good" : "bg-bad")} aria-label={ok ? "正解" : "不正解"}>
@@ -232,8 +242,19 @@ function Result({ test, attempt, onExit }: { test: Test; attempt: Attempt; onExi
                 <span className="text-xs text-ink-muted">第{i + 1}問</span>
                 <span className="block leading-snug">{q.prompt.split("\n").at(-1)}</span>
                 {!ok && (
-                  <span className="mt-1 block text-xs font-bold text-good">
-                    正解 {CHOICE_MARKS[q.answerIndex]}　{q.choices[q.answerIndex]}
+                  <span className="mt-1.5 grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5 text-xs leading-relaxed">
+                    {mine != null && (
+                      <>
+                        <span className="text-bad">× あなた</span>
+                        <span className="text-ink-soft">
+                          {CHOICE_MARKS[mine]}　{q.choices[mine]}
+                        </span>
+                      </>
+                    )}
+                    <span className="font-bold text-good">○ 正解</span>
+                    <span className="font-bold text-good">
+                      {CHOICE_MARKS[q.answerIndex]}　{q.choices[q.answerIndex]}
+                    </span>
                   </span>
                 )}
               </span>
@@ -241,9 +262,16 @@ function Result({ test, attempt, onExit }: { test: Test; attempt: Attempt; onExi
           );
         })}
       </ul>
-      <button className={`${btn.secondary} mt-6 w-full`} onClick={onExit}>
-        テストの一覧に戻る
-      </button>
+      <div className="mt-6 grid gap-2 sm:grid-cols-2">
+        <button className={`${btn.secondary} min-h-12`} onClick={onExit}>
+          <Icon name="arrow-left" className="size-4" />
+          テストの一覧に戻る
+        </button>
+        <button className={`${btn.secondary} min-h-12`} onClick={onRetry}>
+          <Icon name="refresh" className="size-4" />
+          もう一度受ける
+        </button>
+      </div>
     </div>
   );
 }

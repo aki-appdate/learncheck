@@ -186,88 +186,99 @@ function QuestionEditor({
   const field = "w-full rounded-[3px] border border-line-strong bg-surface px-3 py-2 text-sm leading-relaxed";
 
   return (
-    <div className="space-y-4 px-4 py-4 sm:px-5">
-      <p className="border-l-[3px] border-warn bg-warn-soft px-3 py-2 text-xs leading-relaxed text-warn">直している途中です。「直して採用」を押すと、書き換えた問題に「人が修正」の印が残ります。</p>
-      <label className="block">
-        <span className="label">問題文</span>
-        <textarea className={`${field} mt-1 h-20`} value={d.prompt} maxLength={300} onChange={(e) => setD({ ...d, prompt: e.target.value })} />
-      </label>
-      <fieldset>
-        <legend className="label">選択肢（正解の丸を選ぶ）</legend>
-        <div className="mt-1 space-y-1.5">
-          {d.choices.map((c, i) => (
-            <div key={i} className="flex items-center gap-2">
-              <label className="flex shrink-0 items-center gap-1 text-sm">
-                <input type="radio" name={radioName} className="size-4 accent-good" checked={d.answerIndex === i} onChange={() => setD({ ...d, answerIndex: i })} />
-                <span className="w-4 font-bold text-ink-muted">{CHOICE_MARKS[i]}</span>
-              </label>
-              <input
-                className={field}
-                value={c}
-                maxLength={100}
-                aria-label={`選択肢${CHOICE_MARKS[i]}`}
-                onChange={(e) => setD({ ...d, choices: d.choices.map((x, j) => (j === i ? e.target.value : x)) })}
-              />
+    <div>
+      <div className="grid gap-x-6 gap-y-5 px-4 py-4 sm:px-5 xl:grid-cols-[minmax(0,1fr)_22rem]">
+        <div className="min-w-0 space-y-4">
+          <p className="border-l-[3px] border-warn bg-warn-soft px-3 py-2 text-xs leading-relaxed text-warn">直している途中です。「直して採用」を押すと、書き換えた問題に「人が修正」の印が残ります。</p>
+          <label className="block">
+            <span className="label">問題文</span>
+            <textarea className={`${field} mt-1 h-20`} value={d.prompt} maxLength={300} onChange={(e) => setD({ ...d, prompt: e.target.value })} />
+          </label>
+          <fieldset>
+            <legend className="label">選択肢（正解の丸を選ぶ）</legend>
+            <div className="mt-1 space-y-1.5">
+              {d.choices.map((c, i) => (
+                <div key={i} className="flex items-center gap-2">
+                  <label className="flex shrink-0 items-center gap-1 text-sm">
+                    <input type="radio" name={radioName} className="size-4 accent-good" checked={d.answerIndex === i} onChange={() => setD({ ...d, answerIndex: i })} />
+                    <span className="w-4 font-bold text-ink-muted">{CHOICE_MARKS[i]}</span>
+                  </label>
+                  <input
+                    className={field}
+                    value={c}
+                    maxLength={100}
+                    aria-label={`選択肢${CHOICE_MARKS[i]}`}
+                    onChange={(e) => setD({ ...d, choices: d.choices.map((x, j) => (j === i ? e.target.value : x)) })}
+                  />
+                </div>
+              ))}
             </div>
-          ))}
+          </fieldset>
+          <label className="block">
+            <span className="label">解説</span>
+            <textarea className={`${field} mt-1 h-16`} value={d.explanation} maxLength={250} onChange={(e) => setD({ ...d, explanation: e.target.value })} />
+          </label>
+          {stale.length > 0 && (
+            <p className="-mt-2 flex gap-1.5 text-xs font-bold text-warn" role="status">
+              <Icon name="alert" className="mt-px size-4 shrink-0" />
+              <span>解説が、直す前の選択肢「{stale[0]}」を引いたままです。選択肢に合わせて解説も直してください。</span>
+            </p>
+          )}
+          <label className="block">
+            <span className="flex flex-wrap items-baseline justify-between gap-x-3">
+              <span className="label">根拠となる資料の文（一字一句そのまま写す）</span>
+              <button type="button" className="inline-flex items-center gap-1 text-xs font-bold text-brand underline decoration-1 underline-offset-4" onClick={() => setShowMaterial(true)}>
+                <Icon name="doc" className="size-3.5" />
+                資料を開く
+              </button>
+            </span>
+            <textarea className={`${field} mt-1 h-20 bg-paper`} value={d.quote} maxLength={200} onChange={(e) => setD({ ...d, quote: e.target.value })} />
+          </label>
+          <p className={cx("-mt-2 flex items-center gap-1 text-xs font-bold", check.quote.found ? "text-good" : "text-bad")} aria-live="polite">
+            <Icon name={check.quote.found ? "check" : "alert"} className="size-4" />
+            {check.quote.found ? "資料の中にこの文があります" : "この文は資料の中に見つかりません"}
+          </p>
+          <label className="flex items-center gap-2 text-sm">
+            <span className="label">難しさ</span>
+            <select className="rounded-[3px] border border-line-strong bg-surface px-2 py-1 text-sm" value={d.difficulty} onChange={(e) => setD({ ...d, difficulty: e.target.value as Difficulty })}>
+              {DIFFICULTY_ORDER.map((x) => (
+                <option key={x} value={x}>
+                  {DIFFICULTY_LABEL[x]}
+                </option>
+              ))}
+            </select>
+          </label>
+          {check.issues.filter((i) => i.code !== "quote").length > 0 && (
+            <ul className="space-y-1 text-sm">
+              {check.issues
+                .filter((i) => i.code !== "quote")
+                .map((i) => (
+                  <li key={i.code} className={cx("flex gap-1.5", i.level === "error" ? "text-bad" : "text-warn")}>
+                    <Icon name="alert" className="mt-0.5 size-4" />
+                    <span>
+                      <b>{i.level === "error" ? "直す必要あり" : "注意"}</b>　{i.message}
+                    </span>
+                  </li>
+                ))}
+            </ul>
+          )}
         </div>
-      </fieldset>
-      <label className="block">
-        <span className="label">解説</span>
-        <textarea className={`${field} mt-1 h-16`} value={d.explanation} maxLength={250} onChange={(e) => setD({ ...d, explanation: e.target.value })} />
-      </label>
-      {stale.length > 0 && (
-        <p className="-mt-2 flex gap-1.5 text-xs font-bold text-warn" role="status">
-          <Icon name="alert" className="mt-px size-4 shrink-0" />
-          <span>解説が、直す前の選択肢「{stale[0]}」を引いたままです。選択肢に合わせて解説も直してください。</span>
-        </p>
-      )}
-      <label className="block">
-        <span className="flex flex-wrap items-baseline justify-between gap-x-3">
-          <span className="label">根拠となる資料の文（一字一句そのまま写す）</span>
-          <button type="button" className="inline-flex items-center gap-1 text-xs font-bold text-brand underline decoration-1 underline-offset-4" onClick={() => setShowMaterial(true)}>
-            <Icon name="doc" className="size-3.5" />
-            資料を開く
-          </button>
-        </span>
-        <textarea className={`${field} mt-1 h-20 bg-paper`} value={d.quote} maxLength={200} onChange={(e) => setD({ ...d, quote: e.target.value })} />
-      </label>
-      <p className={cx("-mt-2 flex items-center gap-1 text-xs font-bold", check.quote.found ? "text-good" : "text-bad")} aria-live="polite">
-        <Icon name={check.quote.found ? "check" : "alert"} className="size-4" />
-        {check.quote.found ? "資料の中にこの文があります" : "この文は資料の中に見つかりません"}
-      </p>
-      <label className="flex items-center gap-2 text-sm">
-        <span className="label">難しさ</span>
-        <select className="rounded-[3px] border border-line-strong bg-surface px-2 py-1 text-sm" value={d.difficulty} onChange={(e) => setD({ ...d, difficulty: e.target.value as Difficulty })}>
-          {DIFFICULTY_ORDER.map((x) => (
-            <option key={x} value={x}>
-              {DIFFICULTY_LABEL[x]}
-            </option>
-          ))}
-        </select>
-      </label>
-      {check.issues.filter((i) => i.code !== "quote").length > 0 && (
-        <ul className="space-y-1 text-sm">
-          {check.issues
-            .filter((i) => i.code !== "quote")
-            .map((i) => (
-              <li key={i.code} className={cx("flex gap-1.5", i.level === "error" ? "text-bad" : "text-warn")}>
-                <Icon name="alert" className="mt-0.5 size-4" />
-                <span>
-                  <b>{i.level === "error" ? "直す必要あり" : "注意"}</b>　{i.message}
-                </span>
-              </li>
-            ))}
-        </ul>
-      )}
-      <div className="-mx-4 -mb-4 flex flex-wrap gap-2 border-t border-line bg-canvas px-4 py-3 sm:-mx-5 sm:px-5">
+
+        {/* 余白：入力中の根拠の文を、その場で資料と照らし合わせて見せる */}
+        <aside className="min-w-0 space-y-2.5 xl:border-l xl:border-line xl:pl-6" aria-label="入力中の根拠の照らし合わせ">
+          <p className="label">根拠（入力中の文で照らし合わせ）</p>
+          <MaterialExcerpt body={material.body} quote={d.quote} materialTitle={material.title} showCheck />
+        </aside>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2 border-t border-line bg-canvas px-4 py-3 sm:px-5">
         <button className={btn.primary} disabled={blocked} onClick={() => onSave({ ...d, prompt: d.prompt.trim(), choices: d.choices.map((c) => c.trim()), explanation: d.explanation.trim(), quote: d.quote.trim() })}>
           直して採用
         </button>
         <button className={btn.secondary} onClick={onCancel}>
           やめる
         </button>
-        {blocked && <span className="self-center text-xs text-bad">赤い印の点を直すと「直して採用」を押せます。</span>}
+        {blocked && <span className="text-xs text-bad">赤い印の点を直すと「直して採用」を押せます。</span>}
       </div>
 
       {showMaterial && (
