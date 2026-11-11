@@ -161,8 +161,12 @@ export function computeTestStats(test: Test, attempts: Attempt[], people: Person
       const deptAttempts = latestAttempts.filter((a) => ids.has(a.learnerId));
       const deptQuestions = questionStats(test, deptAttempts);
       if (deptAttempts.length) departmentQuestions.push({ department, questions: deptQuestions });
-      // 全員が正解した問題は「一番間違いが多い問題」として出さない
-      const weakestQ = [...deptQuestions].filter((q) => q.answered > 0 && q.correctRate < 1).sort((a, b) => a.correctRate - b.correctRate || a.index - b.index)[0];
+      // 全員が正解した問題は「一番間違いが多い問題」として出さない。
+      // 受講者が3人未満の部署も出さない（1人が1問間違えただけで「0%の問題」になり、言い切りになるため）
+      const weakestQ =
+        deptAttempts.length >= DEPT_MIN_LEARNERS
+          ? [...deptQuestions].filter((q) => q.answered > 0 && q.correctRate < 1).sort((a, b) => a.correctRate - b.correctRate || a.index - b.index)[0]
+          : undefined;
       return {
         department,
         learners: deptAttempts.length,

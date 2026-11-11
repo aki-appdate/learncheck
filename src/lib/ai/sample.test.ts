@@ -8,7 +8,7 @@ import { createSeedData } from "../seed";
 import { isFormatError, keepEvidenced } from "./index";
 import { buildFollowUpPrompt, buildQuizPrompt } from "./prompts";
 import { z } from "zod";
-import { categoryOf, countable, extractTerms, flipRule, listedCount, numberVariants, sampleFollowUp, sampleQuiz, splitSentences } from "./sample";
+import { categoryOf, countable, endingKind, extractTerms, flipRule, listedCount, minFor, numberVariants, sampleFollowUp, sampleQuiz, shorten, splitSentences } from "./sample";
 import { hashString, mulberry32 } from "../random";
 import type { GeneratedQuestion } from "../types";
 
@@ -603,5 +603,86 @@ describe("sampleQuiz：3回目のチェックの指摘（答えの目印・貼�
 1. クレームの電話
 クレームの電話では、相手の話を途中でさえぎらずに最後まで聞きます。その場で約束できないことは、上長に確認してから折り返すと伝えます。10分を超えても話がまとまらない場合は、上長に代わってもらいます。担当者の携帯電話の番号は、相手に教えてはいけません。電話は3回鳴るまでに取ります。相手の会社名とお名前は、必ず復唱して確認します。保留にする時間は30秒までにします。`;
     for (const q of sampleQuiz({ body, count: 8, difficulty: "normal" })) expect([q.prompt, ...q.choices].join("\n")).not.toMatch(/話がまとまらない場合は/);
+  });
+});
+
+describe("sampleQuiz：4回目のチェックの指摘（語尾の手がかり・難しさ・下限・時間）", () => {
+  const RULE = /(?:ください|てはいけません|禁止です)$/;
+  const all = MATERIALS.flatMap((m) =>
+    (["easy", "normal", "hard"] as const).flatMap((difficulty) =>
+      [5, 8, 10].flatMap((count) => [0, 1].map((variant) => ({ difficulty, count, qs: sampleQuiz({ body: m.body, count, difficulty, variant }) }))),
+    ),
+  );
+
+  it("「正しいもの」で、きまりの言い方で終わる選択肢が1つだけなら、それを選ぶ、で当たらない（外れより多くならない）", () => {
+    let hit = 0;
+    let miss = 0;
+    for (const { qs } of all)
+      for (const q of qs.filter((x) => x.prompt.includes("正しいもの"))) {
+        const r = q.choices.map((c) => RULE.test(c));
+        if (r.filter(Boolean).length !== 1) continue;
+        if (r[q.answerIndex]) hit++;
+        else miss++;
+      }
+    expect(hit).toBeLessThanOrEqual(miss);
+    expect(hit).toBeLessThanOrEqual(2);
+  });
+
+  it("「正しいもの」では、答えの語尾の種類が4つの中で答えだけにならない", () => {
+    for (const { qs } of all)
+      for (const q of qs.filter((x) => x.prompt.includes("正しいもの"))) {
+        const k = endingKind(q.choices[q.answerIndex]);
+        expect(q.choices.filter((c, i) => i !== q.answerIndex && endingKind(c) === k).length, q.prompt).toBeGreaterThan(0);
+      }
+  });
+
+  it("やさしいは、8問でも10問でも「正しいもの」が「合わないもの」より多い", () => {
+    for (const count of [8, 10]) {
+      const qs = all.filter((x) => x.difficulty === "easy" && x.count === count).flatMap((x) => x.qs);
+      const right = qs.filter((q) => q.prompt.includes("正しいもの")).length;
+      const wrong = qs.filter((q) => q.prompt.includes("合わないもの")).length;
+      expect(right, `${count}問`).toBeGreaterThan(wrong);
+    }
+  });
+
+  it("「9時から（　）まで」に9時以前・24時より後の誤答を出さない", () => {
+    const s = "受付時間は平日の9時から18時までです。";
+    const t = extractTerms(s).find((x) => x.text === "18時")!;
+    expect(minFor(t, s)).toBe(10);
+    for (const d of ["easy", "normal", "hard"] as const) {
+      for (let i = 0; i < 20; i++) {
+        const vs = numberVariants(t, d, mulberry32(i), { min: minFor(t, s) }).map((x) => Number(x.replace("時", "")));
+        expect(vs.every((n) => n > 9 && n <= 24), vs.join(",")).toBe(true);
+      }
+    }
+  });
+
+  it("「（　）を組み合わせます」に1種類を出さない", () => {
+    const s = "パスワードは12文字以上にし、英字の大文字・小文字・数字・記号のうち3種類以上を組み合わせます。";
+    const t = extractTerms(s).find((x) => x.text.startsWith("3種類"))!;
+    expect(minFor(t, s)).toBe(2);
+    for (const m of MATERIALS)
+      for (const d of ["easy", "normal", "hard"] as const)
+        for (const q of sampleQuiz({ body: m.body, count: 10, difficulty: d })) expect(q.choices).not.toContain("1種類以上");
+  });
+
+  it("よく似た文がくり返す長い資料でも、時間の上限で打ち切る（画面が固まらない）", () => {
+    const base = "電話は3回鳴るまでに取ります。取ったら会社名を名乗ります。相手の会社名とお名前は、必ず復唱して確認します。保留は30秒までにしてください。";
+    let body = "電話応対\n\n";
+    for (let k = 1; body.length < 5900; k++) body += `${k}. 決まり${k}\n${base.replace("3回", `${k + 2}回`).replace("30秒", `${k + 29}秒`)}\n\n`;
+    const t0 = Date.now();
+    sampleQuiz({ body, count: 10, difficulty: "normal", timeLimitMs: 300 });
+    expect(Date.now() - t0).toBeLessThan(2000);
+  });
+});
+
+describe("shorten（フォロー提案の引用を短くする）", () => {
+  it("かぎかっこの途中で切らない", () => {
+    const out = shorten("より大きな事務所には、1分間に50枚の印刷ができる「LC-5000」をおすすめします");
+    expect(out.split("「").length).toBe(out.split("」").length);
+    expect(out.endsWith("…")).toBe(true);
+  });
+  it("短い文はそのまま", () => {
+    expect(shorten("短い文です")).toBe("短い文です");
   });
 });

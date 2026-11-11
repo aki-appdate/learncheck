@@ -18,7 +18,10 @@ export default function LearnPage() {
 
 function Learn() {
   const { tests, attempts, me } = useApp();
-  const [takingId, setTakingId] = useState<string | null>(null);
+  const [taking0, setTaking] = useState<{ testId: string; learnerId: string | undefined } | null>(null);
+  // 受けている途中や結果画面で利用者を切り替えたら、一覧に戻す（新しい人で同じテストが始まらないように）
+  const takingId = taking0 && taking0.learnerId === me?.id ? taking0.testId : null;
+  const setTakingId = (id: string | null) => setTaking(id ? { testId: id, learnerId: me?.id } : null);
   // 対象の部署が決まっているテスト（例：自社商材は営業だけ）は、対象の人にだけ出す
   const published = tests
     .filter((t) => t.status === "published" && (!t.targetDepartments?.length || (me?.department != null && t.targetDepartments.includes(me.department))))

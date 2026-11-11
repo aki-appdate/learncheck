@@ -221,7 +221,7 @@ function Results() {
         <section>
           <div className="flex items-end justify-between border-b border-ink pb-2">
             <h2 className="text-lg font-bold">部署別の弱点</h2>
-            <span className="text-xs text-ink-muted">平均点の低い順</span>
+            <span className="text-xs text-ink-muted">平均点の低い順・一番間違いが多い問題は{DEPT_MIN_LEARNERS}人から</span>
           </div>
           {stats.departments.length ? (
             <div className="overflow-x-auto">

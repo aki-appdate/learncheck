@@ -96,10 +96,10 @@ describe("computeTestStats（正答率の集計）", () => {
     expect(s.commonWrong[0]).toMatchObject({ questionId: "q2", choice: 3, count: 2 });
   });
 
-  it("部署別は平均点の低い順。部署で一番低い問題も出す", () => {
+  it("部署別は平均点の低い順。受講者が3人未満の部署には「一番間違いが多い問題」を出さない（4回目のチェックの指摘）", () => {
     expect(s.departments.map((d) => d.department)).toEqual(["総務", "営業"]);
-    expect(s.departments[0]).toMatchObject({ learners: 1, avgScore: 0 });
-    expect(s.departments[1]).toMatchObject({ learners: 2, avgScore: 75, weakest: { questionId: "q2", correctRate: 0.5 } });
+    expect(s.departments[0]).toMatchObject({ learners: 1, avgScore: 0, weakest: null });
+    expect(s.departments[1]).toMatchObject({ learners: 2, avgScore: 75, weakest: null });
   });
 
   it("結果がなければ0で、エラーにならない", () => {

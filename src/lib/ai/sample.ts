@@ -6,7 +6,7 @@
 //   同じ仲間の語句か、正解に近い数字。並べて書かれた言葉など「入れても正しく読めてしまう」誤答や、
 //   「A・B・Cの（3つ）」のように問題文を数えれば分かる数は使わない。
 // ・きまりの問題：「『○○』の項目について、正しいもの（合わないもの）はどれですか」。資料の文を、意味が逆になる
-//   自然な言い方（「必ず」→「できれば」、「30分以内」→「60分以内」など）に書き換えたものを、間違いの選択肢にする。
+//   自然な言い方（「当日中に」→「翌週中に」、「事前に」→「事後に」、「30分以内」→「60分以内」など）に書き換えたものを、間違いの選択肢にする。
 // どちらも、資料の1つの文はテスト全体で1回しか使わない（ある問題の選択肢が、別の問題の答えを教えないように）。
 // 資料の前置き（「この資料では…まとめます」）や、前の文を読まないと分からない文は使わない。
 
@@ -157,6 +157,20 @@ const isCountUnit = (unit?: string) => COUNT_UNITS.has((unit ?? "").replace(/(?:
 /**
  * 数字のすぐ前に並べて書かれた物の数（「A・B・Cの」「AとBの」「A、B、Cの」）。並べていなければ 0。
  */
+/**
+ * 誤答に使ってよい一番小さい数。
+ * ・「9時から（18時）まで」のように、同じ単位の「N時から」が前にあれば、Nより大きい数だけ
+ * ・「（3種類以上）を組み合わせます」のように組み合わせる数なら、2以上（1つでは組み合わせにならない）
+ */
+export function minFor(answer: Term, sentence: string): number {
+  let min = 1;
+  const before = sentence.slice(0, answer.index);
+  const from = [...before.matchAll(/(\d+)([^\d、。（）]{1,3})から/g)].filter((m) => answer.unit && answer.unit.startsWith(m[2])).pop();
+  if (from) min = Math.max(min, Number(from[1]) + 1);
+  if (/組み合わせ|組合せ/.test(sentence.slice(answer.index)) && isCountUnit(answer.unit)) min = Math.max(min, 2);
+  return min;
+}
+
 export function listedCount(before: string): number {
   const head = before.replace(/(?:の|のうち)$/, "");
   const lastClause = head.split("、").pop() ?? "";
@@ -206,16 +220,13 @@ function blankable(t: Term, sentence: string, forFlip = false): boolean {
 }
 
 /** 文の中で、空欄にするのに一番よい語句を選ぶ。numberOk が false なら数字は選ばない */
-function pickAnswerTerm(terms: Term[], sentence: string, numberOk: boolean): Term | null {
+/** 空欄にする語句の候補を、よい順に並べる（数字は文の後ろのものから→カタカナ語→漢字の言葉。長い言葉ほど先） */
+function answerTermCandidates(terms: Term[], sentence: string, numberOk: boolean): Term[] {
   const ok = terms.filter((t) => blankable(t, sentence) && (numberOk || t.kind !== "number"));
-  const nums = ok.filter((t) => t.kind === "number");
-  if (nums.length) return nums[nums.length - 1];
+  const nums = ok.filter((t) => t.kind === "number").reverse();
   // カタカナ語→漢字の言葉の順。長い言葉ほど、その文ならではの大事な言葉であることが多い
-  for (const kind of ["katakana", "kanji"] as const) {
-    const cands = ok.filter((t) => t.kind === kind);
-    if (cands.length) return [...cands].sort((a, b) => b.text.length - a.text.length)[0];
-  }
-  return null;
+  const words = (["katakana", "kanji"] as const).flatMap((kind) => ok.filter((t) => t.kind === kind).sort((a, b) => b.text.length - a.text.length));
+  return [...nums, ...words];
 }
 
 // ───────── 言葉の仲間 ─────────
@@ -247,20 +258,23 @@ export function categoryOf(word: string): string | null {
  *   4つを並べたときに正解が必ず2番目に小さい数になり、それだけで答えが分かってしまうため
  * ・0以下の数は作らない。足りない分は反対側（正解より大きい側）で補う
  * ・max があれば、それより大きい数は作らない（「大文字・小文字・数字・記号のうち（ ）」に「5種類以上」を出さない）
+ * ・min があれば、それより小さい数は作らない（「9時から（ ）まで」に「6時」、「（ ）を組み合わせます」に「1種類以上」を出さない）
  * ・やさしい＝数字の幅を広く（見分けやすい）、むずかしい＝資料の中の別の数字を1つ混ぜる（取り違えやすい）
  */
 export function numberVariants(
   t: Term,
   difficulty: Difficulty,
   rand: () => number = mulberry32(hashString(t.text)),
-  opts: { max?: number; others?: number[] } = {},
+  opts: { max?: number; min?: number; others?: number[] } = {},
 ): string[] {
   if (t.unit === FREQ_UNIT) return shuffle(FREQUENCIES.filter((f) => f !== t.text), rand).slice(0, 3);
   const v = t.value ?? 1;
   const base = v < 10 ? 1 : v < 20 ? 2 : v < 100 ? 10 : v < 1000 ? 50 : 1000;
   const step = difficulty === "easy" ? (v < 10 ? 1 : base * 2) : base;
-  const max = opts.max ?? Infinity;
-  const below = [1, 2, 3].map((i) => v - step * i).filter((n) => n > 0);
+  // 時刻は24時まで（「26時」のような誤答は常識だけで外せるため）
+  const max = Math.min(opts.max ?? Infinity, t.unit === "時" ? 24 : Infinity);
+  const min = opts.min ?? 1;
+  const below = [1, 2, 3].map((i) => v - step * i).filter((n) => n >= min);
   const above = [1, 2, 3].map((i) => v + step * i).filter((n) => n <= max);
   const wantAbove = Math.floor(rand() * 4);
   let nb = Math.min(3 - wantAbove, below.length);
@@ -271,7 +285,7 @@ export function numberVariants(
   // むずかしい：資料に出てくる同じ単位の別の数字を、同じ側の1つと入れ替える（正解の順位は変わらない）
   if (difficulty === "hard") {
     for (const o of opts.others ?? []) {
-      if (o === v || o <= 0 || o > max || lo.includes(o) || hi.includes(o)) continue;
+      if (o === v || o < min || o > max || lo.includes(o) || hi.includes(o)) continue;
       if (o < v && lo.length && o >= v / 3) {
         lo[lo.length - 1] = o;
         break;
@@ -345,7 +359,7 @@ function buildDistractors(
     ).map((t) => t.value!);
     // 「大文字・小文字・数字・記号のうち（ ）」のように並べた物の数があれば、それを超える数は誤答にしない
     const listed = isCountUnit(answer.unit) ? listedCount(sentence.slice(0, answer.index)) : 0;
-    candidates = numberVariants(answer, difficulty, rand, { max: listed || undefined, others });
+    candidates = numberVariants(answer, difficulty, rand, { max: listed || undefined, min: minFor(answer, sentence), others });
   } else {
     // 名詞の空欄には、同じ種類（カタカナ語どうし・漢字の言葉どうし）の言葉だけを使う。
     // 漢字の言葉は、後ろに同じ助詞が続く言葉（同じような使われ方をしている言葉）に限る
@@ -474,6 +488,21 @@ function flipNumber(base: string): string | null {
 
 /** 「〜てもかまいません」のような、許可・容認の形で終わる文 */
 const PERMIT_RE = /(?:かまいません|認められています|問題ありません|必要はありません)$/;
+/** 選択肢の語尾の種類。きまりの言い方（〜ください・〜てはいけません・〜禁止です）・許可の形・ふつうの言い方の3つに分ける */
+const RULE_ENDING_RE = /(?:ください|てはいけません|禁止です|禁止されています)$/;
+export function endingKind(text: string): "rule" | "permit" | "plain" {
+  const t = text.replace(/。$/, "");
+  return RULE_ENDING_RE.test(t) ? "rule" : PERMIT_RE.test(t) ? "permit" : "plain";
+}
+/**
+ * 語尾で答えが絞れないか。答えと同じ語尾の種類の誤答が1つ以上あり、きまりの言い方で終わる選択肢がちょうど1つだけ、
+ * という形にもならないこと（その1つがいつも誤答だと、今度は「浮いた1つは外す」で絞れてしまうため）
+ */
+export function endingShared(answer: string, others: string[], strict = true): boolean {
+  const k = endingKind(answer);
+  const kinds = [answer, ...others].map(endingKind);
+  return others.some((o) => endingKind(o) === k) && (!strict || kinds.filter((x) => x === "rule").length !== 1);
+}
 
 /**
  * 難しさで変えるもの（見本の返答）。
@@ -554,7 +583,18 @@ function fitExplanation(parts: string[]): string {
 
 type Draft = { start: number; q: Omit<GeneratedQuestion, "answerIndex" | "choices"> & { answer: string; distractors: string[] }; kind: "number" | "word" | "rule" };
 
-type QuizInput = { body: string; count: number; difficulty: Difficulty; variant?: number };
+type QuizInput = {
+  body: string;
+  count: number;
+  difficulty: Difficulty;
+  variant?: number;
+  /**
+   * 作り直しにかける時間の上限（ミリ秒）。よく似た文がくり返す長い資料では、文の組み合わせを探すのに時間がかかり、
+   * 画面が固まるため、上限を過ぎたらそれまでに作れた一番多いものを使う。ふつうの資料は数ミリ秒で終わるので、上限には届かない
+   */
+  timeLimitMs?: number;
+};
+const DEFAULT_TIME_LIMIT_MS = 2000;
 
 /**
  * 見本の返答で問題を作る。variant（作り直し番号）を変えると別の組み合わせになる。
@@ -562,16 +602,25 @@ type QuizInput = { body: string; count: number; difficulty: Difficulty; variant?
  */
 export function sampleQuiz(input: QuizInput): GeneratedQuestion[] {
   const v = input.variant ?? 0;
+  const deadline = Date.now() + (input.timeLimitMs ?? DEFAULT_TIME_LIMIT_MS);
   const history: string[][] = [];
   let out: GeneratedQuestion[] = [];
-  for (let k = Math.max(0, v - 3); k <= v; k++) {
+  // 1回目から順にたどる（途中から始めると、画面で見た「前回」と違う案を前回として扱ってしまうため）
+  for (let k = 0; k <= v; k++) {
     const penalty = new Map<string, number>();
     const recent = history.slice(-3);
     recent.forEach((quotes, i) => {
       const w = [3, 6, 10][i + 3 - recent.length];
       for (const q of quotes) penalty.set(q, Math.max(penalty.get(q) ?? 0, w));
     });
-    out = buildQuiz({ ...input, variant: k }, penalty);
+    const prev = new Set(history.at(-1) ?? []);
+    const overlap = (qs: GeneratedQuestion[]) => qs.filter((q) => prev.has(q.quote)).length;
+    // 前回と半分を超えて同じ文から作ってしまったら、選ぶ順番を変えてあと3回まで試し、重なりの一番少ないものを使う
+    out = buildQuiz({ ...input, variant: k }, penalty, deadline);
+    for (let j = 1; j <= 3 && k > 0 && overlap(out) > out.length / 2 && Date.now() <= deadline; j++) {
+      const alt = buildQuiz({ ...input, variant: k + j * 1009 }, penalty, deadline);
+      if (alt.length > out.length || (alt.length === out.length && overlap(alt) < overlap(out))) out = alt;
+    }
     history.push(out.map((q) => q.quote));
   }
   return out;
@@ -581,20 +630,19 @@ export function sampleQuiz(input: QuizInput): GeneratedQuestion[] {
  * 文はテスト全体で1回しか使わないので、選び方の順番しだいで、資料の文が足りなくなることがある。
  * 指定の数に届かなければ、選ぶ順番を変えて何度か作り直し、一番多く作れたものを使う（同じ入力なら同じ結果）
  */
-function buildQuiz(input: QuizInput, penalty: Map<string, number>): GeneratedQuestion[] {
+function buildQuiz(input: QuizInput, penalty: Map<string, number>, deadline: number): GeneratedQuestion[] {
   let best: GeneratedQuestion[] = [];
   for (let attempt = 0; attempt < 60; attempt++) {
     const qs = buildQuizOnce(input, penalty, attempt);
     if (qs.length > best.length) best = qs;
-    if (best.length >= input.count) return best;
+    if (best.length >= input.count || Date.now() > deadline) return best;
   }
-  // 難しさの組み立て方では文が足りないときは、「ふつう」の組み立て方で作る（数字の誤答の作り方など、ほかは元の難しさのまま）
-  if (input.difficulty !== "normal") {
-    for (let attempt = 0; attempt < 30; attempt++) {
-      const qs = buildQuizOnce(input, penalty, attempt, DIFFICULTY_PLAN.normal);
-      if (qs.length > best.length) best = qs;
-      if (best.length >= input.count) break;
-    }
+  // 難しさの組み立て方では文が足りないときは、「ふつう」の組み立て方で、文が残り少なければ「合わないもの」を先にして作る
+  // （数字の誤答の作り方など、ほかは元の難しさのまま）
+  for (let attempt = 0; attempt < 30; attempt++) {
+    const qs = buildQuizOnce(input, penalty, attempt, DIFFICULTY_PLAN.normal);
+    if (qs.length > best.length) best = qs;
+    if (best.length >= input.count || Date.now() > deadline) break;
   }
   return best;
 }
@@ -642,7 +690,12 @@ function buildQuizOnce(input: QuizInput, penalty: Map<string, number>, attempt: 
   const usedAnswers = new Set<string>();
 
   // 選択肢にできる文（短めで、資料の前置きではない文）。文ごとに、載っている項目の番号と見出しを覚えておく
-  const sectionOf = (st: number) => sectionIndex(body, st);
+  // 並べ替えの中で何度も呼ぶので、文の位置ごとに覚えておく（長い資料で画面が固まらないように）
+  const secCache = new Map<number, number>();
+  const sectionOf = (st: number) => {
+    if (!secCache.has(st)) secCache.set(st, sectionIndex(body, st));
+    return secCache.get(st)!;
+  };
   const choiceable = sentences.filter((s) => normalize(s.text).text.length <= 80);
   // きまりの文（逆の意味に書き換えられる文）
   const rules = shuffle(
@@ -661,7 +714,9 @@ function buildQuizOnce(input: QuizInput, penalty: Map<string, number>, attempt: 
     // 作れなかったときは、もう一方の聞き方で作る（「合わないもの」は書き換えた文が1つあれば作れるので作りやすい）
     // 「正しいもの」は書き換えた文を3つ使うので、書き換えられる文が残り少ないときは「合わないもの」で作る
     const rulesLeft = rules.filter((s) => !usedSentences.has(s.start)).length;
-    const scarce = rulesLeft < 3 * (count - drafts.length);
+    // やさしい・ふつうでは「正しいもの」を作れるだけ先に作る（説明どおり「正しいもの」が多め／混ざるように）。
+    // それで数が足りないときだけ、作り直しの最後で「合わないもの」を先にする組み立て方に切り替える（buildQuiz）
+    const scarce = (difficulty === "hard" || planOverride !== undefined) && rulesLeft < 3 * (count - drafts.length);
     const first = scarce || plan.askWrong(nRule);
     // それでも作れないときだけ、許可の形の答えだけが浮く「合わないもの」も認める（問題数が足りなくなるのを防ぐ）
     return addRuleAs(first) || addRuleAs(!first) || addRuleAs(true, true) || addRuleAs(false, true);
@@ -708,7 +763,11 @@ function buildQuizOnce(input: QuizInput, penalty: Map<string, number>, attempt: 
         if (picked.length === 3) break;
         // 「正しいもの」の誤答に許可の形（〜てもかまいません）は1つまで。並ぶと、許可の形を消すだけで答えが絞れてしまう
         if (!askWrong && !allowLonePermit && PERMIT_RE.test(c.text) && picked.some((p) => PERMIT_RE.test(p.text))) continue;
-        if (balanced([answer, ...picked.map((p) => p.text), c.text])) picked.push(c);
+        if (!balanced([answer, ...picked.map((p) => p.text), c.text])) continue;
+        // 最後の1つを選ぶときは、答えの語尾の種類（「〜ください／てはいけません」などのきまりの言い方・許可の形・ふつうの言い方）が
+        // 4つの中で答えだけにならないようにする。答えだけが「〜してください」で終わると、語尾だけで答えが分かってしまうため
+        if (picked.length === 2 && !endingShared(answer, [...picked.map((p) => p.text), c.text], !allowLonePermit)) continue;
+        picked.push(c);
       }
       if (picked.length < 3) continue;
       const others = shuffle(picked, rand);
@@ -771,12 +830,20 @@ function buildQuizOnce(input: QuizInput, penalty: Map<string, number>, attempt: 
       if (drafts.length >= limit) break;
       if (usedSentences.has(r.s.start)) continue;
       const numbers = drafts.filter((d) => d.kind === "number").length;
-      const answer = pickAnswerTerm(r.terms, r.s.text, numbers < cap);
-      if (!answer || usedAnswers.has(normalize(answer.text).text)) continue;
-      // 「1分間に（30枚）」「1分間に（50枚）」のように、同じ単位の数字の問題が続くと単調になるので、単位ごとに1問まで
-      if (answer.kind === "number" && usedUnits.has(answer.unit!)) continue;
-      const distractors = buildDistractors(answer, r.s.text, ctx, difficulty, rand);
-      if (!distractors) continue;
+      // 1つ目の語句で誤答を作れない（「（3種類以上）を組み合わせます」は2・4種類しか使えない、など）ときは、同じ文の次の語句で作る
+      let answer: Term | null = null;
+      let distractors: string[] | null = null;
+      for (const t of answerTermCandidates(r.terms, r.s.text, numbers < cap)) {
+        if (usedAnswers.has(normalize(t.text).text)) continue;
+        // 「1分間に（30枚）」「1分間に（50枚）」のように、同じ単位の数字の問題が続くと単調になるので、単位ごとに1問まで
+        if (t.kind === "number" && usedUnits.has(t.unit!)) continue;
+        distractors = buildDistractors(t, r.s.text, ctx, difficulty, rand);
+        if (distractors) {
+          answer = t;
+          break;
+        }
+      }
+      if (!answer || !distractors) continue;
       usedAnswers.add(normalize(answer.text).text);
       if (answer.kind === "number") usedUnits.add(answer.unit!);
       usedSentences.add(r.s.start);
@@ -847,9 +914,32 @@ const DIFF_SEED: Record<Difficulty, number> = { easy: 11, normal: 23, hard: 37 }
 
 // ───────── フォロー研修の提案 ─────────
 
-function shorten(s: string, n = 28): string {
+export function shorten(s: string, n = 28): string {
   const t = s.replace(/\s+/g, "");
-  return t.length > n ? `${t.slice(0, n)}…` : t;
+  if (t.length <= n) return t;
+  // かぎかっこの途中で切らない（「…「LC…」の部分」のように、かっこが閉じなくなるため）。
+  // 切る位置が「」の中なら、その「の手前で切る。手前が短すぎるときは、」のあとまで含める
+  let cut = n;
+  const opens: number[] = [];
+  for (let i = 0; i < n; i++) {
+    if (t[i] === "「") opens.push(i);
+    else if (t[i] === "」") opens.pop();
+  }
+  if (opens.length) {
+    const open = opens[0];
+    if (open >= 8) cut = open;
+    else {
+      let depth = 0;
+      for (let i = open; i < t.length; i++) {
+        if (t[i] === "「") depth++;
+        else if (t[i] === "」" && --depth === 0) {
+          cut = i + 1;
+          break;
+        }
+      }
+    }
+  }
+  return cut >= t.length ? t : `${t.slice(0, cut)}…`;
 }
 
 /** 傾向を言うのに必要な受講者の数（決めているのは analytics.ts） */

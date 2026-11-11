@@ -1,6 +1,6 @@
 "use client";
 
-import { useDeferredValue, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useApp } from "../AppProvider";
 import { MaterialFull } from "../MaterialExcerpt";
 import { btn, Card, cx, Icon, Modal } from "../ui";
@@ -31,13 +31,18 @@ export function CreateTestForm({ onCreated }: { onCreated: (id: string) => void 
   const body = isPaste ? pasteBody.trim() : selected?.body ?? "";
   const bodyLen = pasteBody.trim().length;
   const canRun = !busy && title.length > 0 && body.length >= MIN_BODY && body.length <= MAX_BODY;
-  // 見本の返答（AIを使わないとき）で、貼り付けた資料から何問作れそうかを先に知らせる。
-  // 1つの文はテスト全体で1回しか使わないため、短い資料では頼んだ数より少なくなる
-  const deferredBody = useDeferredValue(body);
-  const estimate = useMemo(() => {
-    if (!isPaste || aiMode() !== "sample" || deferredBody.length < MIN_BODY || deferredBody.length > MAX_BODY) return null;
-    return sampleQuiz({ body: deferredBody, count, difficulty }).length;
-  }, [isPaste, deferredBody, count, difficulty]);
+  // 見本の返答（AIを使わないとき）で、何問作れそうかを先に知らせる（見本資料でも、10問を選ぶと8〜9問になる）。
+  // 1つの文はテスト全体で1回しか使わないため、資料によっては頼んだ数より少なくなる。
+  // 入力のたびに計算すると、よく似た文がくり返す長い資料で画面が固まるので、入力が止まってから、時間の上限つきで数える
+  const estimateKey = `${count}:${difficulty}:${body}`;
+  const [estimated, setEstimated] = useState<{ key: string; n: number } | null>(null);
+  useEffect(() => {
+    if (aiMode() !== "sample" || body.length < MIN_BODY || body.length > MAX_BODY) return;
+    const timer = setTimeout(() => setEstimated({ key: estimateKey, n: sampleQuiz({ body, count, difficulty, timeLimitMs: 300 }).length }), 400);
+    return () => clearTimeout(timer);
+  }, [estimateKey, body, count, difficulty]);
+  // 入力が変わったら、数え直すまでは古い見積もりを出さない
+  const estimate = estimated?.key === estimateKey ? estimated.n : null;
   const buttonHint = busy
     ? "次の画面で、根拠の文と問題を1問ずつ確かめてから公開します。"
     : isPaste && bodyLen > MAX_BODY
@@ -180,7 +185,7 @@ export function CreateTestForm({ onCreated }: { onCreated: (id: string) => void 
               <p className="mt-2.5 text-xs leading-relaxed text-warn" role="status">
                 {estimate === 0
                   ? "この資料からは、見本の返答では問題を作れません。「。」で終わる文が多い資料を使ってください。"
-                  : `この長さの資料なら、見本の返答で作れるのは${estimate}問ほどです（1つの文はテスト全体で1回しか使わないため）。`}
+                  : `この資料なら、見本の返答で作れるのは${estimate}問ほどです（1つの文はテスト全体で1回しか使わないため）。`}
               </p>
             )}
           </Step>
@@ -196,7 +201,7 @@ export function CreateTestForm({ onCreated }: { onCreated: (id: string) => void 
             <p className="mt-2.5 text-xs leading-relaxed text-ink-soft">{DIFFICULTY_HINT[difficulty]}。</p>
             {aiMode() === "sample" && (
               <p className="mt-1 text-xs leading-relaxed text-ink-muted">
-                見本の返答では、作れる問題の形が資料の文しだいなので、難しさによる違いは小さくなることがあります（短い資料ほど小さくなります）。
+                見本の返答では、作れる問題の形が資料の文しだいなので、難しさによる違いは小さくなることがあります。問題数が多いと、数をそろえるために「合わないもの」が中心になることもあります。
               </p>
             )}
           </Step>
