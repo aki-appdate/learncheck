@@ -1,31 +1,67 @@
 rules_version = '2';
 
 // お試しの人は匿名ログインし、自分の workspaces/{uid} の下だけを読み書きできる。
-// 他の人のデータは読めず、決められた形以外のデータは書き込めない。
+// 書き込むときは、項目の名前・型・大きさ（文字数・件数）を確かめる。
+// ただし、ルールでは配列の中身を1つずつは確かめられないため、問題1つずつ・回答1つずつの中身までは確かめていない
+// （中身の確認は画面側のチェックに任せている）。
 service cloud.firestore {
   match /databases/{database}/documents {
     function isOwner(uid) {
       return request.auth != null && request.auth.uid == uid;
     }
 
+    function optString(v, max) {
+      return v == null || (v is string && v.size() <= max);
+    }
+
+    function validTest(d, testId) {
+      return d.keys().hasOnly(['id', 'title', 'material', 'status', 'questions', 'createdAt', 'publishedAt', 'aiSource', 'note', 'targetDepartments', 'generation'])
+        && d.keys().hasAll(['id', 'title', 'material', 'status', 'questions', 'createdAt'])
+        && d.id == testId
+        && d.title is string && d.title.size() > 0 && d.title.size() <= 80
+        && d.status in ['draft', 'published']
+        && d.material is map
+        && d.material.keys().hasOnly(['id', 'title', 'body'])
+        && optString(d.material.id, 40)
+        && d.material.title is string && d.material.title.size() <= 80
+        && d.material.body is string && d.material.body.size() <= 6000
+        // 問題は1〜10問（AIに作らせるのは最大10問）
+        && d.questions is list && d.questions.size() >= 1 && d.questions.size() <= 10
+        && d.createdAt is string && d.createdAt.size() <= 30
+        && optString(d.get('publishedAt', null), 30)
+        && d.get('aiSource', null) in ['gemini', 'sample', null]
+        && optString(d.get('note', null), 300)
+        && (d.get('targetDepartments', null) == null || (d.targetDepartments is list && d.targetDepartments.size() <= 10))
+        && (d.get('generation', null) == null
+          || (d.generation is map
+            && d.generation.keys().hasOnly(['count', 'difficulty', 'variant'])
+            && d.generation.count is int && d.generation.count >= 1 && d.generation.count <= 10
+            && d.generation.difficulty in ['easy', 'normal', 'hard']
+            && d.generation.variant is int && d.generation.variant >= 0 && d.generation.variant <= 1000));
+    }
+
+    function validAttempt(d, attemptId) {
+      return d.keys().hasOnly(['id', 'testId', 'learnerId', 'answers', 'at'])
+        && d.keys().hasAll(['id', 'testId', 'learnerId', 'answers', 'at'])
+        && d.id == attemptId
+        && d.testId is string && d.testId.size() <= 60
+        && d.learnerId is string && d.learnerId.size() <= 20
+        && d.answers is list && d.answers.size() >= 1 && d.answers.size() <= 10
+        && d.at is string && d.at.size() <= 30;
+    }
+
     match /workspaces/{uid} {
       allow read, delete: if isOwner(uid);
       allow create, update: if isOwner(uid)
         && request.resource.data.keys().hasOnly(['seedBase'])
-        && request.resource.data.seedBase is string;
+        && request.resource.data.seedBase is string
+        && request.resource.data.seedBase.size() <= 30;
 
       // 利用者が作ったテスト（下書き・公開済み）
       match /tests/{testId} {
         allow read: if isOwner(uid);
         allow create, update: if isOwner(uid)
-          && request.resource.data.id == testId
-          && request.resource.data.status in ['draft', 'published']
-          && request.resource.data.title is string
-          && request.resource.data.title.size() <= 80
-          && request.resource.data.questions is list
-          && request.resource.data.questions.size() <= 20
-          && request.resource.data.material.body is string
-          && request.resource.data.material.body.size() <= 8000
+          && validTest(request.resource.data, testId)
           // 公開したテストは書き換えない（受講結果と問題がずれないように）
           && (resource == null || resource.data.status == 'draft');
         // 削除は「データを初期化」で使う（画面から消せるのは下書きだけ）
@@ -35,13 +71,7 @@ service cloud.firestore {
       // 受講結果
       match /attempts/{attemptId} {
         allow read, delete: if isOwner(uid);
-        allow create: if isOwner(uid)
-          && request.resource.data.id == attemptId
-          && request.resource.data.testId is string
-          && request.resource.data.learnerId is string
-          && request.resource.data.answers is list
-          && request.resource.data.answers.size() <= 20
-          && request.resource.data.at is string;
+        allow create: if isOwner(uid) && validAttempt(request.resource.data, attemptId);
         // 結果は後から書き換えない
         allow update: if false;
       }

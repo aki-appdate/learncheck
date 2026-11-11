@@ -80,7 +80,7 @@ export default function Home() {
         <ul className="mt-3 space-y-2 text-sm leading-relaxed text-ink-soft">
           <li>・AIの出力はすべて「案」です。テストは研修担当が1問ずつ確認してから公開し、フォロー研修の案も最終判断は人が行います。</li>
           <li>・AIの返答は決まった形で受け取り、形が違えば使いません。問題の根拠（資料の引用文）は、資料の中に一字一句あるかをプログラムで照らし合わせます。</li>
-          <li>・AIが使えないとき（未設定・無料枠の上限・通信エラー）は、資料の文から問題を作るルールベースの「見本の返答」に自動で切り替わります。画面右上の表示で、どちらが動いたか分かります。</li>
+          <li>・AIが使えないとき（未設定・無料枠の上限・通信エラー・返答の形の不正）は、資料の文から問題を作るルールベースの「見本の返答」に自動で切り替わります。画面右上の表示で、どちらが動いたか分かります。</li>
         </ul>
       </div>
 
@@ -89,7 +89,7 @@ export default function Home() {
         <dl className="mt-4 grid gap-4 text-sm sm:grid-cols-2">
           <div>
             <dt className="font-medium text-ink">作った人</dt>
-            <dd className="mt-1 text-ink-soft">Claude Code（AIコーディングツール）を使って、設計・実装・動作確認を行いました。</dd>
+            <dd className="mt-1 text-ink-soft">設計・仕様決め・動作確認は筆者、実装は Claude Code（AIコーディングツール）です。</dd>
           </div>
           <div>
             <dt className="font-medium text-ink">使っている技術</dt>

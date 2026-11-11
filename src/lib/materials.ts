@@ -129,8 +129,9 @@ const PRODUCTS = `1. 当社の取り扱い商品
 提案書には、今の費用と当社に切り替えたあとの費用を、同じ条件で並べて書きます。比べやすくするため、費用は1か月あたりの金額にそろえます。提案書は、お客様に出す前に、必ず上長の確認を受けてください。出したあとは、1週間以内に電話をして、疑問点がないかをうかがいます。`;
 
 export const MATERIALS: Material[] = [
-  { id: "mat-privacy", title: "個人情報の取り扱い", audience: "新入社員", body: PRIVACY },
-  { id: "mat-security", title: "情報セキュリティの基本", audience: "新入社員", body: SECURITY },
-  { id: "mat-harassment", title: "ハラスメント防止", audience: "全社員", body: HARASSMENT },
-  { id: "mat-products", title: "自社商材（複合機・法人携帯）の基礎", audience: "営業部の新人", body: PRODUCTS },
+  { id: "mat-privacy", title: "個人情報の取り扱い", audience: "全員", targetDepartments: null, body: PRIVACY },
+  { id: "mat-security", title: "情報セキュリティの基本", audience: "全員", targetDepartments: null, body: SECURITY },
+  { id: "mat-harassment", title: "ハラスメント防止", audience: "全員", targetDepartments: null, body: HARASSMENT },
+  // 商品の説明は営業の仕事なので、受講の対象は営業1課・営業2課だけにする
+  { id: "mat-products", title: "自社商材（複合機・法人携帯）の基礎", audience: "営業1課・営業2課", targetDepartments: ["営業1課", "営業2課"], body: PRODUCTS },
 ];

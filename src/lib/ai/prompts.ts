@@ -1,6 +1,6 @@
 import { CHOICE_MARKS } from "../quality";
 import { DIFFICULTY_LABEL } from "../labels";
-import type { TestStats } from "../analytics";
+import { DEPT_GAP, DEPT_MIN_LEARNERS, pct, type TestStats } from "../analytics";
 import type { Difficulty, Person, Test } from "../types";
 
 // AIへの指示文。何を渡し、何を返してほしいかをここに集める。
@@ -17,9 +17,10 @@ export const QUIZ_SYSTEM = `あなたは企業の研修担当を手伝うアシ�
 - 資料の同じ箇所から何問も作らず、資料全体からまんべんなく出す。
 - 文章は日本語で、新入社員にも分かるやさしい言葉にする。`;
 
-export function buildQuizPrompt(input: { title: string; body: string; count: number; difficulty: Difficulty }): string {
+export function buildQuizPrompt(input: { title: string; body: string; count: number; difficulty: Difficulty; variant?: number }): string {
+  const again = input.variant ? `\n作り直し: ${input.variant}回目。前に作った問題とは、資料の別の箇所・別の聞き方で作る。` : "";
   return `作る問題の数: ${input.count}問
-難しさ: ${DIFFICULTY_LABEL[input.difficulty]}（difficulty には "${input.difficulty}" を入れる）
+難しさ: ${DIFFICULTY_LABEL[input.difficulty]}（difficulty には "${input.difficulty}" を入れる）${again}
 
 研修資料「${input.title}」:
 <<<資料ここから
@@ -34,10 +35,10 @@ export const FOLLOWUP_SYSTEM = `あなたは企業の研修担当を補佐する
 - 根拠にした問題の id を evidenceQuestionIds に必ず入れる。渡された id 以外は使わない。
 - 数字は渡された集計値だけを使い、計算し直したり作ったりしない。
 - 正答率が低い原因は「教え方」だけでなく「問題文や選択肢が紛らわしい」可能性もあることを考える。
+- 全体の正答率が高くても、特定の部署だけ正答率が大きく低い問題があれば取り上げる（「部署×問題」を見る）。人数が少ない部署は偶然の可能性も書く。
 - 受講者個人を責める書き方ではなく、研修の改善につながる書き方にする。`;
 
 export function buildFollowUpPrompt(test: Test, stats: TestStats, people: Person[]): string {
-  const pct = (n: number) => `${Math.round(n * 100)}%`;
   const qLines = stats.questions
     .map((s) => {
       const q = test.questions[s.index];
@@ -55,6 +56,12 @@ export function buildFollowUpPrompt(test: Test, stats: TestStats, people: Person
     })
     .join("\n");
   const name = (id: string) => people.find((p) => p.id === id)?.name ?? id;
+  const matrix = stats.departmentQuestions
+    .map((d) => `- ${d.department}: ${d.questions.map((q) => `第${q.index + 1}問 ${q.answered ? pct(q.correctRate) : "-"}`).join(" / ")}`)
+    .join("\n");
+  const gapLines = stats.departmentGaps
+    .map((g) => `- ${g.department} [${g.questionId}] 第${g.index + 1}問: 部署${pct(g.deptRate)}（${g.answered}人）/ 全体${pct(g.overallRate)}`)
+    .join("\n");
 
   return `テスト: ${test.title}（資料「${test.material.title}」）
 受講済み: ${stats.learnerCount}人 / 対象${stats.targetCount}人（未受講: ${stats.notTaken.map(name).join("、") || "なし"}）
@@ -64,5 +71,11 @@ export function buildFollowUpPrompt(test: Test, stats: TestStats, people: Person
 ${qLines}
 
 部署別:
-${deptLines || "- なし"}`;
+${deptLines || "- なし"}
+
+部署×問題の正答率（各部署の最新の結果）:
+${matrix || "- なし"}
+
+全体より大きく低い部署×問題（部署の正答率が全体より${Math.round(DEPT_GAP * 100)}ポイント以上低い・${DEPT_MIN_LEARNERS}人以上）:
+${gapLines || "- なし"}`;
 }

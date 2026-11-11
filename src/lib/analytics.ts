@@ -5,6 +5,15 @@ import type { Attempt, Person, Test } from "./types";
 
 /** これより正答率が低い問題は「間違いが多い」とみなす */
 export const LOW_RATE = 0.6;
+/** 部署の正答率が、全体よりこれ以上低い問題を「部署で特につまずいている問題」とみなす */
+export const DEPT_GAP = 0.3;
+/** 部署ごとの比較は、これ以上の人数が答えた場合だけ行う（1〜2人の結果だけで部署の傾向とは言えないため） */
+export const DEPT_MIN_LEARNERS = 3;
+
+/** 割合を「67%」のように書く（画面・AIへの指示文・見本の返答で共通） */
+export function pct(n: number): string {
+  return `${Math.round(n * 100)}%`;
+}
 
 export type QuestionStat = {
   questionId: string;
@@ -35,9 +44,22 @@ export type DepartmentStat = {
   weakest: { questionId: string; correctRate: number } | null;
 };
 
+/** 部署×問題：その部署の正答率が全体より大きく低い問題 */
+export type DepartmentGap = {
+  department: string;
+  questionId: string;
+  index: number;
+  /** その部署で答えた人数 */
+  answered: number;
+  deptRate: number;
+  overallRate: number;
+  /** その部署で一番多く選ばれた誤答 */
+  topWrong: { choice: number; count: number } | null;
+};
+
 export type TestStats = {
   testId: string;
-  /** 受講対象（受講者全員）の人数 */
+  /** 受講対象の人数（対象の部署が決まっていればその部署の人数） */
   targetCount: number;
   learnerCount: number;
   avgScore: number;
@@ -49,7 +71,17 @@ export type TestStats = {
   departments: DepartmentStat[];
   /** よく選ばれた誤答（多い順） */
   commonWrong: { questionId: string; choice: number; count: number; share: number }[];
+  /** 部署×問題の正答率（部署ごとに、問題の順） */
+  departmentQuestions: { department: string; questions: QuestionStat[] }[];
+  /** 部署の正答率が全体より大きく低い問題（差の大きい順） */
+  departmentGaps: DepartmentGap[];
 };
+
+/** テストを受ける対象の受講者（対象の部署が決まっていれば、その部署の人だけ） */
+export function targetLearners(test: Pick<Test, "targetDepartments">, people: Person[]): Person[] {
+  const depts = test.targetDepartments;
+  return people.filter((p) => p.role === "learner" && (!depts?.length || (p.department !== null && depts.includes(p.department))));
+}
 
 function rate(a: number, b: number): number {
   return b === 0 ? 0 : a / b;
@@ -95,7 +127,7 @@ function questionStats(test: Test, attempts: Attempt[]): QuestionStat[] {
 }
 
 export function computeTestStats(test: Test, attempts: Attempt[], people: Person[]): TestStats {
-  const learnersAll = people.filter((p) => p.role === "learner");
+  const learnersAll = targetLearners(test, people);
   const latest = latestByLearner(attempts, test.id).filter((x) => learnersAll.some((p) => p.id === x.latest.learnerId));
   const latestAttempts = latest.map((x) => x.latest);
 
@@ -107,11 +139,13 @@ export function computeTestStats(test: Test, attempts: Attempt[], people: Person
   const avg = (xs: number[]) => (xs.length ? xs.reduce((s, x) => s + x, 0) / xs.length : 0);
 
   const deptNames = [...new Set(learnersAll.map((p) => p.department ?? "部署なし"))];
+  const departmentQuestions: TestStats["departmentQuestions"] = [];
   const departments: DepartmentStat[] = deptNames
     .map((department) => {
       const ids = new Set(learnersAll.filter((p) => (p.department ?? "部署なし") === department).map((p) => p.id));
       const deptAttempts = latestAttempts.filter((a) => ids.has(a.learnerId));
       const deptQuestions = questionStats(test, deptAttempts);
+      if (deptAttempts.length) departmentQuestions.push({ department, questions: deptQuestions });
       const weakestQ = [...deptQuestions].filter((q) => q.answered > 0).sort((a, b) => a.correctRate - b.correctRate || a.index - b.index)[0];
       return {
         department,
@@ -132,6 +166,22 @@ export function computeTestStats(test: Test, attempts: Attempt[], people: Person
     .sort((a, b) => b.count - a.count || b.share - a.share)
     .slice(0, 5);
 
+  const departmentGaps: DepartmentGap[] = departmentQuestions
+    .flatMap(({ department, questions: dq }) =>
+      dq
+        .filter((d) => d.answered >= DEPT_MIN_LEARNERS && d.correctRate < LOW_RATE && questions[d.index].correctRate - d.correctRate >= DEPT_GAP)
+        .map((d) => ({
+          department,
+          questionId: d.questionId,
+          index: d.index,
+          answered: d.answered,
+          deptRate: d.correctRate,
+          overallRate: questions[d.index].correctRate,
+          topWrong: d.topWrong && { choice: d.topWrong.choice, count: d.topWrong.count },
+        })),
+    )
+    .sort((a, b) => b.overallRate - b.deptRate - (a.overallRate - a.deptRate) || a.index - b.index);
+
   const taken = new Set(learners.map((l) => l.learnerId));
   return {
     testId: test.id,
@@ -144,5 +194,7 @@ export function computeTestStats(test: Test, attempts: Attempt[], people: Person
     notTaken: learnersAll.filter((p) => !taken.has(p.id)).map((p) => p.id),
     departments,
     commonWrong,
+    departmentQuestions,
+    departmentGaps,
   };
 }

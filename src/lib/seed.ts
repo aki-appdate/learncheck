@@ -1,11 +1,13 @@
 // デモ用のデータ。人名・部署・資料はすべて架空。
-// 乱数の種を固定しているので、誰が開いても同じ傾向のデータになる（日付だけは「今日」基準でずらす）。
+// 乱数の種を固定しているので、誰が開いても同じ傾向のデータになる（日付だけは「お試しを始めた日」基準でずらす）。
+// 受講日は平日、時刻は 9:00〜18:00 の決まった時刻にする（開いた時刻によって受講時刻が変わらないように）。
 //
 // 結果ダッシュボードが面白くなるよう、次の傾向を仕込んである。
 // ・個人情報テストの第8問（漏えいに気づいたら最初にすること）で「原因を調べてから報告」を選ぶ人が多い
 // ・個人情報テストの第10問（取引先からの問い合わせ）は、カスタマーサポートで誤答が多い
 // ・セキュリティテストの第1問（パスワードの長さ）で「8文字以上」を選ぶ人が多い
 // ・セキュリティテストの第5問（あやしい添付を開いてしまったら）は、営業2課で「電源を切る」が多い
+// ・何人かは同じテストを2回受けている（集計には最新の結果を使う）
 
 import { MATERIALS } from "./materials";
 import { mulberry32, shuffle } from "./random";
@@ -356,8 +358,23 @@ function material(id: string): Material {
   return MATERIALS.find((m) => m.id === id)!;
 }
 
-const HOUR = 60 * 60 * 1000;
-const DAY = 24 * HOUR;
+/** 受講・作成の時刻（9:00〜18:00の間の決まった時刻） */
+const SLOTS: [number, number][] = [
+  [9, 30], [10, 15], [11, 0], [11, 40], [13, 30], [14, 10], [14, 50], [15, 30], [16, 20], [17, 10],
+];
+
+/** base の日から、平日（土日を除く）で bizDaysAgo 日前の、決まった時刻。bizDaysAgo は1以上（今日・未来にはしない） */
+export function weekdayAt(base: Date, bizDaysAgo: number, slot: number): string {
+  const d = new Date(base.getFullYear(), base.getMonth(), base.getDate());
+  let n = Math.max(1, bizDaysAgo);
+  while (n > 0) {
+    d.setDate(d.getDate() - 1);
+    if (d.getDay() !== 0 && d.getDay() !== 6) n--;
+  }
+  const [h, m] = SLOTS[((slot % SLOTS.length) + SLOTS.length) % SLOTS.length];
+  d.setHours(h, m, 0, 0);
+  return d.toISOString();
+}
 
 export type SeedData = { people: Person[]; materials: Material[]; tests: Test[]; attempts: Attempt[] };
 
@@ -365,7 +382,7 @@ export const SEED_TEST_IDS = ["test-privacy", "test-security", "test-harassment-
 
 export function createSeedData(now: Date = new Date()): SeedData {
   const rand = mulberry32(20261111);
-  const at = (daysAgo: number, hourOffset = 0) => new Date(now.getTime() - daysAgo * DAY - hourOffset * HOUR).toISOString();
+  const at = (bizDaysAgo: number, slot: number) => weekdayAt(now, bizDaysAgo, slot);
 
   const privacy = material("mat-privacy");
   const security = material("mat-security");
@@ -378,10 +395,13 @@ export function createSeedData(now: Date = new Date()): SeedData {
       material: { id: privacy.id, title: privacy.title, body: privacy.body },
       status: "published",
       questions: toQuestions("test-privacy", PRIVACY_QS, "approved"),
-      createdAt: at(14, 3),
-      publishedAt: at(13, 5),
-      aiSource: "sample",
+      createdAt: at(14, 1),
+      publishedAt: at(13, 0),
+      // デモ用に人が書いた問題（AIは使っていない）
+      aiSource: null,
       note: null,
+      targetDepartments: null,
+      generation: null,
     },
     {
       id: "test-security",
@@ -389,10 +409,12 @@ export function createSeedData(now: Date = new Date()): SeedData {
       material: { id: security.id, title: security.title, body: security.body },
       status: "published",
       questions: toQuestions("test-security", SECURITY_QS, "approved"),
-      createdAt: at(7, 2),
-      publishedAt: at(6, 6),
-      aiSource: "sample",
+      createdAt: at(7, 4),
+      publishedAt: at(6, 0),
+      aiSource: null,
       note: null,
+      targetDepartments: null,
+      generation: null,
     },
     {
       id: "test-harassment-draft",
@@ -400,10 +422,12 @@ export function createSeedData(now: Date = new Date()): SeedData {
       material: { id: harassment.id, title: harassment.title, body: harassment.body },
       status: "draft",
       questions: toQuestions("test-harassment-draft", HARASSMENT_DRAFT, "pending"),
-      createdAt: at(1, 2),
+      createdAt: at(1, 3),
       publishedAt: null,
       aiSource: null,
-      note: "AIが作った問題に「資料にない根拠」や「重複した選択肢」がまじっていた場合の例です（デモ用に用意した下書き）。",
+      note: "AIが作った問題に「資料にない根拠」や「重複した選択肢」がまじっていた場合の例です（デモ用に人が用意した下書き）。",
+      targetDepartments: null,
+      generation: null,
     },
   ];
 
@@ -412,11 +436,12 @@ export function createSeedData(now: Date = new Date()): SeedData {
   const skill = new Map(learners.map((l) => [l.id, (rand() - 0.5) * 0.24]));
 
   const attempts: Attempt[] = [];
-  const plan: { test: Test; defs: QDef[]; skip: string[]; maxDaysAgo: number }[] = [
-    { test: tests[0], defs: PRIVACY_QS, skip: ["l-14"], maxDaysAgo: 12 },
-    { test: tests[1], defs: SECURITY_QS, skip: ["l-08", "l-11", "l-14"], maxDaysAgo: 5 },
+  // retake：2回受けた人。1回目はもっと点が低く、そのあと資料を読み直して受け直した、という想定
+  const plan: { test: Test; defs: QDef[]; skip: string[]; maxDaysAgo: number; retake: string[] }[] = [
+    { test: tests[0], defs: PRIVACY_QS, skip: ["l-14"], maxDaysAgo: 12, retake: ["l-06", "l-10", "l-13"] },
+    { test: tests[1], defs: SECURITY_QS, skip: ["l-08", "l-11", "l-14"], maxDaysAgo: 5, retake: ["l-02"] },
   ];
-  for (const { test, defs, skip, maxDaysAgo } of plan) {
+  for (const { test, defs, skip, maxDaysAgo, retake } of plan) {
     const takers = learners.filter((l) => !skip.includes(l.id));
     // 少人数でも狙った正答率に近づくよう、問題ごとに 0〜1 の値を受講者へ均等に散らして配る（層別）
     const draws = defs.map(() => {
@@ -442,13 +467,28 @@ export function createSeedData(now: Date = new Date()): SeedData {
         }
         return { questionId: q.id, choice };
       });
-      const daysAgo = Math.floor(rand() * (maxDaysAgo + 1));
+      const daysAgo = 1 + Math.floor(rand() * maxDaysAgo);
+      const slot = Math.floor(rand() * SLOTS.length);
+      if (retake.includes(l.id)) {
+        // 1回目：今回の回答のうち、正解だった問題を2問だけ間違えていた（2回目の2〜3営業日前）
+        // 公開日（maxDaysAgo + 1 営業日前）より前にはしない。公開日と同じ日なら、公開より後の夕方にする
+        const firstDaysAgo = Math.min(maxDaysAgo + 1, daysAgo + 2);
+        const firstSlot = firstDaysAgo === maxDaysAgo + 1 ? SLOTS.length - 1 : slot + 3;
+        let flipped = 0;
+        const first = answers.map((a, i) => {
+          const d = defs[i];
+          if (flipped >= 2 || a.choice !== d.answer || d.p > 0.9) return a;
+          flipped++;
+          return { ...a, choice: d.trap?.choice ?? (d.answer + 1) % 4 };
+        });
+        attempts.push({ id: `seed-${test.id}-${l.id}-1`, testId: test.id, learnerId: l.id, answers: first, at: at(firstDaysAgo, firstSlot) });
+      }
       attempts.push({
         id: `seed-${test.id}-${l.id}`,
         testId: test.id,
         learnerId: l.id,
         answers,
-        at: at(daysAgo, 1 + Math.floor(rand() * 7)),
+        at: at(daysAgo, slot),
       });
     }
   }

@@ -28,10 +28,47 @@ export function checkQuestion(q: GeneratedQuestion, material: string): { quote: 
   if (!Number.isInteger(q.answerIndex) || q.answerIndex < 0 || q.answerIndex >= q.choices.length) {
     issues.push({ level: "error", code: "answer", message: "正解が選ばれていません" });
   }
+  // 根拠の文が資料にあっても、正解と関係のない文を引いていることがある（ゆるすぎる確認を補う）
+  const answer = q.choices[q.answerIndex];
+  if (quote.found && answer && !sharesWord(answer, q.quote)) {
+    issues.push({
+      level: "warn",
+      code: "answer_not_in_quote",
+      message: "正解の根拠になっているか確認してください（正解の選択肢の言葉が、根拠の文に1つも出てきません）",
+    });
+  }
   if (!q.explanation.trim()) {
     issues.push({ level: "warn", code: "explanation", message: "解説が空です。受講者が間違えたときに理由が分かりません" });
   }
   return { quote, issues };
+}
+
+/**
+ * 選択肢の中の「言葉」（2文字以上の漢字・カタカナ、英数字のまとまり）を取り出す。
+ * 1文字の漢字（「上」など）はどこにでも出てくるので、ほかに言葉がないときだけ使う。
+ * それもなければ、ひらがな2文字以上のまとまりを使う。
+ */
+export function choiceWords(choice: string): string[] {
+  const t = normalize(choice).text;
+  const all = t.match(/[一-龠々〆ヶ]+|[ァ-ヴー]{2,}|[A-Za-z0-9]+/g) ?? [];
+  const long = all.filter((w) => !/^[一-龠々〆ヶ]$/.test(w));
+  if (long.length) return long;
+  if (all.length) return all;
+  return t.match(/[ぁ-ゖ]{2,}/g) ?? [];
+}
+
+/** 正解の選択肢の言葉が、根拠の文に1つでも出てくるか。3文字以上の漢字の言葉は、2文字の部分が出てくればよい */
+export function sharesWord(choice: string, quote: string): boolean {
+  const q = normalize(quote).text;
+  const words = choiceWords(choice);
+  if (!words.length) return true;
+  return words.some((w) => {
+    if (q.includes(w)) return true;
+    if (/^[一-龠々〆ヶ]{3,}$/.test(w)) {
+      for (let i = 0; i + 2 <= w.length; i++) if (q.includes(w.slice(i, i + 2))) return true;
+    }
+    return false;
+  });
 }
 
 export function hasError(issues: Issue[]): boolean {
@@ -82,4 +119,21 @@ export function publishBlockers(questions: TestQuestion[], material: string): st
   if (approved.length < 3) reasons.push("採用した問題が3問以上必要です");
   if (approved.some((q) => hasError(checkQuestion(q, material).issues))) reasons.push("採用した問題に、直す必要のある点があります");
   return reasons;
+}
+
+/**
+ * 「直して採用」で、人が実際に書き換えたか（何も変えずに押した場合は「人が修正」の印を付けない）。
+ * 保存のときに前後の空白を取り除くので、空白だけの違いは書き換えとみなさない。
+ */
+export function isChanged(before: GeneratedQuestion, after: GeneratedQuestion): boolean {
+  const same = (a: string, b: string) => a.trim() === b.trim();
+  return (
+    !same(before.prompt, after.prompt) ||
+    !same(before.explanation, after.explanation) ||
+    !same(before.quote, after.quote) ||
+    before.answerIndex !== after.answerIndex ||
+    before.difficulty !== after.difficulty ||
+    before.choices.length !== after.choices.length ||
+    before.choices.some((c, i) => !same(c, after.choices[i] ?? ""))
+  );
 }

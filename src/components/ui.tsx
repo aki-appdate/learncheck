@@ -62,10 +62,6 @@ export function Stat({ label, value, sub }: { label: string; value: React.ReactN
   );
 }
 
-export function pct(n: number): string {
-  return `${(Math.round(n * 1000) / 10).toFixed(1)}%`;
-}
-
 /** 画面の上に重ねて出す小窓。外側を押すか「閉じる」で閉じる */
 export function Modal({ title, onClose, children, wide }: { title: React.ReactNode; onClose: () => void; children: React.ReactNode; wide?: boolean }) {
   return (

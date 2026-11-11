@@ -1,7 +1,11 @@
 // 「根拠となる資料の引用文」が、資料の中に本当にあるかを確かめる。
 // AIは資料にない文をそれらしく作ってしまうことがあるため、ここで機械的に照らし合わせる。
 //
-// 比べるときは、空白・改行の有無と、全角／半角の違い（ＡとA、１と1 など）だけを同じものとみなす。
+// 比べるときは、次の「書き方の揺れ」だけを同じものとみなす。
+//   ・空白・改行の有無
+//   ・全角／半角の違い（ＡとA、１と1、％と% など）
+//   ・『』と「」
+//   ・数字の範囲を表す記号（10〜30、10～30、10-30、10－30、10ー30）
 // 言い回しが少しでも違えば「見つからない」とする（言い換えを許すと、作り話を見逃すため）。
 
 /** 根拠として認める引用文の最小の長さ（空白を除いた文字数） */
@@ -11,21 +15,31 @@ type Normalized = { text: string; /** text の各文字が元の文字列の何�
 
 const EDGE_PUNCT = /^[「」『』（）()。、・：:\s]+|[「」『』（）()。、・：:\s]+$/g;
 
+const BRACKETS: Record<string, string> = { "『": "「", "』": "」" };
+/** 範囲の記号。〜・～・~ はいつも、ハイフンや長音の「ー」は数字にはさまれたときだけ範囲とみなす */
+const WAVE = new Set(["〜", "~"]);
+const DASH = new Set(["-", "‐", "‑", "–", "—", "―", "ー", "−"]);
+
 export function normalize(s: string): Normalized {
-  let text = "";
+  const chars: string[] = [];
   const map: number[] = [];
   let i = 0;
   for (const ch of s) {
     const n = ch.normalize("NFKC");
     if (!/^\s+$/.test(n)) {
       for (const c of n) {
-        text += c;
+        chars.push(BRACKETS[c] ?? c);
         map.push(i);
       }
     }
     i += ch.length;
   }
-  return { text, map };
+  const isDigit = (c: string | undefined) => c !== undefined && c >= "0" && c <= "9";
+  for (let k = 0; k < chars.length; k++) {
+    const c = chars[k];
+    if (WAVE.has(c) || (DASH.has(c) && isDigit(chars[k - 1]) && isDigit(chars[k + 1]))) chars[k] = "~";
+  }
+  return { text: chars.join(""), map };
 }
 
 export type QuoteMatch =

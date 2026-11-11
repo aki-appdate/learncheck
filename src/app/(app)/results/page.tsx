@@ -6,7 +6,7 @@ import { RoleGate } from "@/components/RoleGate";
 import { FollowUpPanel } from "@/components/results/FollowUpPanel";
 import { QuestionDetail } from "@/components/results/QuestionDetail";
 import { Badge, Card, CardTitle, cx, RateBar, Stat } from "@/components/ui";
-import { computeTestStats, LOW_RATE } from "@/lib/analytics";
+import { computeTestStats, LOW_RATE, pct } from "@/lib/analytics";
 import { formatDateJa } from "@/lib/dates";
 import { CHOICE_MARKS } from "@/lib/quality";
 
@@ -17,8 +17,6 @@ export default function ResultsPage() {
     </RoleGate>
   );
 }
-
-const pct = (n: number) => `${Math.round(n * 100)}%`;
 
 function Results() {
   const { tests, attempts, people } = useApp();
@@ -60,10 +58,10 @@ function Results() {
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <Stat label="平均点" value={stats.learnerCount ? `${Math.round(stats.avgScore)}点` : "—"} sub="100点満点" />
         <Stat label="受講済み" value={`${stats.learnerCount}人`} sub={`対象 ${stats.targetCount}人中`} />
-        <Stat label="満点" value={`${stats.perfectCount}人`} sub={`全${test.questions.length}問正解`} />
+        <Stat label="満点" value={stats.learnerCount ? `${stats.perfectCount}人` : "—"} sub={`全${test.questions.length}問正解`} />
         <Stat
           label="間違いが多い問題"
-          value={<span className={lowCount ? "text-bad" : undefined}>{lowCount}問</span>}
+          value={stats.learnerCount ? <span className={lowCount ? "text-bad" : undefined}>{lowCount}問</span> : "—"}
           sub={`正答率${pct(LOW_RATE)}未満`}
         />
       </div>
@@ -71,7 +69,10 @@ function Results() {
       <FollowUpPanel key={`${test.id}:${stats.learnerCount}`} test={test} stats={stats} onOpenQuestion={setOpenQ} />
 
       <Card>
-        <CardTitle aside={<span className="text-xs text-ink-muted">押すと選択肢ごとの人数が見られます</span>}>問題ごとの正答率</CardTitle>
+        <CardTitle aside={<span className="text-xs text-ink-muted">{stats.learnerCount ? "押すと選択肢ごとの人数が見られます" : "まだ受講者がいません"}</span>}>
+          問題ごとの正答率
+        </CardTitle>
+        {stats.learnerCount === 0 && <p className="border-b border-line px-5 py-3 text-sm text-ink-muted">まだ受講者がいません。受講者が受けると、ここに問題ごとの正答率が出ます。</p>}
         <ul className="divide-y divide-line">
           {stats.questions.map((s) => {
             const q = test.questions[s.index];
@@ -86,10 +87,16 @@ function Results() {
                     </span>
                     <span className="mt-0.5 block truncate text-ink-soft">{q.prompt.split("\n").at(-1)}</span>
                   </span>
-                  <span className="flex items-center gap-2">
-                    <RateBar value={s.correctRate} tone={low ? "bad" : "brand"} />
-                    <span className={cx("w-11 shrink-0 text-right text-sm tabular-nums", low && "font-bold text-bad")}>{pct(s.correctRate)}</span>
-                  </span>
+                  {s.answered > 0 ? (
+                    <span className="flex items-center gap-2">
+                      <RateBar value={s.correctRate} tone={low ? "bad" : "brand"} />
+                      <span className={cx("w-11 shrink-0 text-right text-sm tabular-nums", low && "font-bold text-bad")}>{pct(s.correctRate)}</span>
+                    </span>
+                  ) : (
+                    <span className="flex items-center justify-end text-sm text-ink-muted" aria-label="まだ受講者がいません">
+                      —
+                    </span>
+                  )}
                 </button>
               </li>
             );

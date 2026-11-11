@@ -17,6 +17,8 @@ export type Material = {
   title: string;
   /** 対象（例：新入社員） */
   audience: string;
+  /** 受講の対象にする部署。null なら全員 */
+  targetDepartments: string[] | null;
   body: string;
 };
 
@@ -62,6 +64,10 @@ export type Test = {
   aiSource: AiSource | null;
   /** 画面に出す補足（デモ用の例であることなど） */
   note: string | null;
+  /** 受講の対象にする部署。null（または未設定）なら受講者全員 */
+  targetDepartments?: string[] | null;
+  /** 問題を作ったときの条件。「別の問題で作り直す」で使う（デモ用の例は null） */
+  generation?: { count: number; difficulty: Difficulty; variant: number } | null;
 };
 
 /** 受講者の1回分の回答 */

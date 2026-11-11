@@ -2,7 +2,7 @@
 
 import { MaterialExcerpt } from "../MaterialExcerpt";
 import { Badge, btn, cx, Modal } from "../ui";
-import type { QuestionStat } from "@/lib/analytics";
+import { pct, type QuestionStat } from "@/lib/analytics";
 import { CHOICE_MARKS } from "@/lib/quality";
 import type { Test } from "@/lib/types";
 
@@ -14,8 +14,8 @@ export function QuestionDetail({ test, stat, onClose }: { test: Test; stat: Ques
     <Modal title={`第${stat.index + 1}問の結果`} onClose={onClose} wide>
       <div className="space-y-4">
         <p className="flex flex-wrap items-center gap-2 text-sm">
-          正答率 <b className="text-lg tabular-nums">{Math.round(stat.correctRate * 100)}%</b>
-          <span className="text-ink-muted">（{stat.answered}人中 {stat.correct}人が正解）</span>
+          正答率 <b className="text-lg tabular-nums">{stat.answered ? pct(stat.correctRate) : "—"}</b>
+          <span className="text-ink-muted">{stat.answered ? `（${stat.answered}人中 ${stat.correct}人が正解）` : "（まだ受講者がいません）"}</span>
           {q.edited && <Badge tone="warn">人が修正した問題</Badge>}
         </p>
         <p className="whitespace-pre-wrap text-sm font-medium leading-relaxed">{q.prompt}</p>

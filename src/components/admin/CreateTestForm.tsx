@@ -52,6 +52,8 @@ export function CreateTestForm({ onCreated }: { onCreated: (id: string) => void 
       aiSource: r.source,
       note:
         [r.note, r.value.length < count ? `資料の長さの都合で、${r.value.length}問だけ作りました。` : null].filter(Boolean).join(" ") || null,
+      targetDepartments: isPaste ? null : (selected?.targetDepartments ?? null),
+      generation: { count, difficulty, variant: 0 },
     };
     try {
       await saveTest(test);

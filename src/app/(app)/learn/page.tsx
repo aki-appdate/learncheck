@@ -19,7 +19,10 @@ export default function LearnPage() {
 function Learn() {
   const { tests, attempts, me } = useApp();
   const [takingId, setTakingId] = useState<string | null>(null);
-  const published = tests.filter((t) => t.status === "published").reverse();
+  // 対象の部署が決まっているテスト（例：自社商材は営業だけ）は、対象の人にだけ出す
+  const published = tests
+    .filter((t) => t.status === "published" && (!t.targetDepartments?.length || (me?.department != null && t.targetDepartments.includes(me.department))))
+    .reverse();
   const taking = published.find((t) => t.id === takingId);
 
   if (taking) return <TakeTest key={`${taking.id}:${me?.id}`} test={taking} onExit={() => setTakingId(null)} />;
@@ -34,7 +37,7 @@ function Learn() {
           {me?.name}さん（{me?.department}）の確認テストです。1問答えるごとに、正解と資料の該当箇所が表示されます。
         </p>
       </div>
-      {published.length === 0 && <p className="text-sm text-ink-muted">公開されているテストはまだありません。</p>}
+      {published.length === 0 && <p className="text-sm text-ink-muted">あなたが対象の、公開されているテストはまだありません。</p>}
       <div className="space-y-3">
         {published.map((t) => {
           const latest = latestByLearner(mine, t.id)[0];

@@ -1,3 +1,4 @@
+import { ZodError } from "zod";
 import { getFirebaseApp } from "../firebase";
 import { toDateKey } from "../dates";
 import type { TestStats } from "../analytics";
@@ -12,7 +13,11 @@ import { sampleFollowUp, sampleQuiz } from "./sample";
 
 export type AiResult<T> = { value: T; source: AiSource; note?: string };
 
-/** 無料枠を一人で使い切らないよう、ブラウザごとに1日の回数を区切る */
+/**
+ * 無料枠を一人で使い切らないよう、ブラウザごとに1日の回数の目安を設ける。
+ * localStorage に数えるだけなので、消せば数え直しになる（本当の上限ではない）。
+ * 利用者ごとの上限は、Firebase AI Logic 側の設定（利用者ごとの回数制限）でかける前提。
+ */
 const DAILY_LIMIT = 20;
 const USAGE_KEY = "learncheck:ai-usage";
 
@@ -36,6 +41,12 @@ export function aiMode(): AiSource {
 
 const LIMIT_NOTE = "今日のAI利用回数の上限に達したため、見本の返答を表示しています";
 const ERROR_NOTE = "AIに接続できなかったため、見本の返答を表示しています";
+const FORMAT_NOTE = "AIの返答の形が正しくなかったため、見本の返答を表示しています";
+
+/** 返答の形が不正（JSONとして読めない・決めた形と違う）か。通信エラーとは別の案内を出す */
+export function isFormatError(e: unknown): boolean {
+  return e instanceof SyntaxError || e instanceof ZodError;
+}
 
 export async function generateQuiz(input: {
   title: string;
@@ -68,7 +79,7 @@ export async function generateQuiz(input: {
     return { value: value.questions.slice(0, input.count), source: "gemini" };
   } catch (e) {
     console.warn("[ai] generateQuiz fallback", e);
-    return fallback(ERROR_NOTE);
+    return fallback(isFormatError(e) ? FORMAT_NOTE : ERROR_NOTE);
   }
 }
 
@@ -94,7 +105,7 @@ export async function suggestFollowUp(test: Test, stats: TestStats, people: Pers
     return keepEvidenced(value, test) ?? fallback("AIの返答に根拠が確認できなかったため、見本の返答を表示しています");
   } catch (e) {
     console.warn("[ai] suggestFollowUp fallback", e);
-    return fallback(ERROR_NOTE);
+    return fallback(isFormatError(e) ? FORMAT_NOTE : ERROR_NOTE);
   }
 }
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computeTestStats, latestByLearner, scoreAttempt } from "./analytics";
+import { computeTestStats, latestByLearner, pct, scoreAttempt, targetLearners } from "./analytics";
 import type { Attempt, Person, Test, TestQuestion } from "./types";
 
 const q = (id: string, answerIndex: number): TestQuestion => ({
@@ -24,6 +24,8 @@ const TEST: Test = {
   publishedAt: "2026-11-01T00:00:00.000Z",
   aiSource: "sample",
   note: null,
+  targetDepartments: null,
+  generation: null,
 };
 
 const PEOPLE: Person[] = [
@@ -105,5 +107,64 @@ describe("computeTestStats（正答率の集計）", () => {
     expect(e.avgScore).toBe(0);
     expect(e.questions[0].correctRate).toBe(0);
     expect(e.departments).toEqual([]);
+  });
+});
+
+describe("departmentGaps（部署×問題で、全体より大きく低い問題）", () => {
+  // 営業3人・総務3人。q1 は営業が全員正解、総務が全員不正解（全体50%・総務0%）
+  const people: Person[] = [
+    ...PEOPLE.slice(0, 3),
+    { id: "e", name: "E", role: "learner", department: "営業" },
+    { id: "c", name: "C", role: "learner", department: "総務" },
+    { id: "d", name: "D", role: "learner", department: "総務" },
+    { id: "f", name: "F", role: "learner", department: "総務" },
+  ];
+  const attempts = [
+    att("1", "a", [0, 1], "2026-11-02T00:00:00Z"),
+    att("2", "b", [0, 1], "2026-11-02T00:00:00Z"),
+    att("3", "e", [0, 1], "2026-11-02T00:00:00Z"),
+    att("4", "c", [3, 1], "2026-11-02T00:00:00Z"),
+    att("5", "d", [3, 1], "2026-11-02T00:00:00Z"),
+    att("6", "f", [2, 1], "2026-11-02T00:00:00Z"),
+  ];
+  const s = computeTestStats(TEST, attempts, people);
+
+  it("部署の正答率が全体より大きく低い問題を、部署・人数・よく選ばれた誤答つきで返す", () => {
+    expect(s.departmentGaps).toEqual([
+      { department: "総務", questionId: "q1", index: 0, answered: 3, deptRate: 0, overallRate: 0.5, topWrong: { choice: 3, count: 2 } },
+    ]);
+  });
+
+  it("部署×問題の正答率の表も返す（AIへの指示文に使う）", () => {
+    expect(s.departmentQuestions.map((d) => [d.department, d.questions.map((q) => q.correctRate)])).toEqual([
+      ["営業", [1, 1]],
+      ["総務", [0, 1]],
+    ]);
+  });
+
+  it("答えた人が少ない部署（2人以下）は、偶然の可能性があるので挙げない", () => {
+    const few = computeTestStats(TEST, attempts.filter((a) => a.learnerId !== "f"), people);
+    expect(few.departmentGaps).toEqual([]);
+  });
+});
+
+describe("targetLearners（受講の対象）", () => {
+  it("対象の部署が決まっていればその部署の受講者だけ、なければ受講者全員", () => {
+    expect(targetLearners({ targetDepartments: null }, PEOPLE).map((p) => p.id)).toEqual(["a", "b", "c", "d"]);
+    expect(targetLearners({ targetDepartments: ["営業"] }, PEOPLE).map((p) => p.id)).toEqual(["a", "b"]);
+  });
+
+  it("対象外の部署の人は、未受講者にも数えない", () => {
+    const s = computeTestStats({ ...TEST, targetDepartments: ["営業"] }, [att("1", "a", [0, 1], "2026-11-02T00:00:00Z")], PEOPLE);
+    expect(s.targetCount).toBe(2);
+    expect(s.notTaken).toEqual(["b"]);
+  });
+});
+
+describe("pct", () => {
+  it("割合を整数の%で書く", () => {
+    expect(pct(0)).toBe("0%");
+    expect(pct(2 / 3)).toBe("67%");
+    expect(pct(1)).toBe("100%");
   });
 });

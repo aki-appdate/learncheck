@@ -6,11 +6,13 @@ import { useApp } from "../AppProvider";
 import { MaterialExcerpt } from "../MaterialExcerpt";
 import { AiSourceBadge, Badge, btn, Card, CardTitle, cx } from "../ui";
 import { QuestionReviewCard } from "./QuestionReviewCard";
+import { generateQuiz } from "@/lib/ai";
 import { formatDateTimeJa } from "@/lib/dates";
-import { CHOICE_MARKS, checkTest, publishBlockers } from "@/lib/quality";
+import { CHOICE_MARKS, checkTest, isChanged, publishBlockers } from "@/lib/quality";
 import { DIFFICULTY_LABEL } from "@/lib/labels";
 import { SEED_TEST_IDS } from "@/lib/seed";
 import type { GeneratedQuestion, Test, TestQuestion } from "@/lib/types";
+
 
 /** 下書きの確認・公開。公開済みなら読み取り専用で表示する */
 export function TestEditor({ test, onDeleted }: { test: Test; onDeleted: () => void }) {
@@ -22,6 +24,7 @@ function DraftEditor({ test, onDeleted }: { test: Test; onDeleted: () => void })
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [title, setTitle] = useState(test.title);
+  const [regenerating, setRegenerating] = useState(false);
 
   async function update(next: Test) {
     setSaving(true);
@@ -58,6 +61,33 @@ function DraftEditor({ test, onDeleted }: { test: Test; onDeleted: () => void })
   }
 
   const canDelete = !SEED_TEST_IDS.includes(test.id);
+  const gen = test.generation;
+
+  /** 同じ資料・問題数・難しさで、別の問題の案を作り直す（見本の返答は作り直し番号で別の文・語句を選ぶ） */
+  async function regenerate() {
+    if (!gen) return;
+    if (!confirm("今の問題の案と確認の状態を捨てて、別の問題の案を作り直します。よろしいですか？")) return;
+    setRegenerating(true);
+    setError(null);
+    try {
+      const variant = gen.variant + 1;
+      const r = await generateQuiz({ title: test.material.title, body: test.material.body, count: gen.count, difficulty: gen.difficulty, variant });
+      if (r.value.length === 0) {
+        setError("この資料からは、別の問題を作れませんでした。");
+        return;
+      }
+      await update({
+        ...test,
+        title: title.trim() || test.title,
+        questions: r.value.map((q, i) => ({ ...q, id: `${test.id}-v${variant}-q${String(i + 1).padStart(2, "0")}`, review: "pending", edited: false })),
+        aiSource: r.source,
+        note: [r.note, r.value.length < gen.count ? `資料の長さの都合で、${r.value.length}問だけ作りました。` : null].filter(Boolean).join(" ") || null,
+        generation: { ...gen, variant },
+      });
+    } finally {
+      setRegenerating(false);
+    }
+  }
 
   return (
     <div className="space-y-4">
@@ -79,8 +109,19 @@ function DraftEditor({ test, onDeleted }: { test: Test; onDeleted: () => void })
               onBlur={() => title.trim() && title.trim() !== test.title && update({ ...test, title: title.trim() })}
             />
           </label>
-          <p className="text-sm text-ink-soft">元の資料：{test.material.title}</p>
+          <p className="text-sm text-ink-soft">
+            元の資料：{test.material.title}
+            {test.targetDepartments?.length ? `・受講の対象：${test.targetDepartments.join("・")}` : "・受講の対象：全員"}
+          </p>
           {test.note && <p className="rounded-lg bg-brand-soft p-3 text-sm text-brand-strong">{test.note}</p>}
+          {gen && (
+            <div className="flex flex-wrap items-center gap-2">
+              <button className={btn.secondary} disabled={saving || regenerating} onClick={regenerate}>
+                {regenerating ? "作り直しています…" : "別の問題で作り直す"}
+              </button>
+              <span className="text-xs text-ink-muted">同じ資料・問題数・難しさで、別の箇所や聞き方の案を作ります（今の確認の状態は消えます）。</span>
+            </div>
+          )}
         </div>
       </Card>
 
@@ -112,7 +153,7 @@ function DraftEditor({ test, onDeleted }: { test: Test; onDeleted: () => void })
                 下書きを削除
               </button>
             )}
-            <button className={btn.primary} disabled={saving || blockers.length > 0} onClick={publish}>
+            <button className={btn.primary} disabled={saving || regenerating || blockers.length > 0} onClick={publish}>
               確認した問題で公開する
             </button>
           </div>
@@ -136,7 +177,7 @@ function DraftEditor({ test, onDeleted }: { test: Test; onDeleted: () => void })
             material={test.material}
             disabled={saving}
             onReview={(review) => patchQuestion(q.id, { review })}
-            onEdit={(next: GeneratedQuestion) => patchQuestion(q.id, { ...next, edited: true, review: "approved" })}
+            onEdit={(next: GeneratedQuestion) => patchQuestion(q.id, { ...next, edited: q.edited || isChanged(q, next), review: "approved" })}
           />
         ))}
       </div>
@@ -169,7 +210,9 @@ function PublishedView({ test }: { test: Test }) {
           </div>
           <div>
             <dt className="text-xs text-ink-muted">受講済み</dt>
-            <dd className="mt-0.5">{taken}人</dd>
+            <dd className="mt-0.5">
+              {taken}人{test.targetDepartments?.length ? <span className="text-ink-muted">（対象：{test.targetDepartments.join("・")}）</span> : null}
+            </dd>
           </div>
         </dl>
         <Link href="/results" className={btn.secondary}>
