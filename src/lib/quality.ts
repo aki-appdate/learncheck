@@ -97,6 +97,27 @@ export function checkTest(questions: TestQuestion[]): Issue[] {
     }
   }
 
+  // 別の問題と同じ文を選択肢に使っている：ある問題の選択肢が、別の問題の答えを教えてしまう
+  // （例：第6問の選択肢「提案書は、出す前に必ず上長の確認を受けてください」が、第7問の正解そのもの）
+  // 根拠の文どうしが同じなのは問題ない（同じ文から2問作ることはある）。選択肢と、別の問題の選択肢・根拠が同じものを探す
+  const key = (t: string) => normalize(t).text.replace(/。$/, "");
+  const long = (ts: string[]) => new Set(ts.map(key).filter((t) => t.length >= 10));
+  for (let i = 0; i < live.length; i++) {
+    const ci = long(live[i].choices);
+    for (let j = i + 1; j < live.length; j++) {
+      const cj = long(live[j].choices);
+      const shared =
+        [...ci].some((t) => cj.has(t) || t === key(live[j].quote)) || [...cj].some((t) => t === key(live[i].quote));
+      if (shared) {
+        issues.push({
+          level: "warn",
+          code: "shared_choice",
+          message: `第${i + 1}問と第${j + 1}問で、同じ文が選択肢に使われています。片方の問題が、もう片方の答えを教えてしまうことがあります`,
+        });
+      }
+    }
+  }
+
   // 同じ問題文が2つ以上ある
   const seen = new Map<string, number>();
   live.forEach((q, i) => {

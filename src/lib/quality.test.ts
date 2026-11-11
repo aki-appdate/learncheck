@@ -96,6 +96,22 @@ describe("checkTest（テスト全体のチェック）", () => {
     expect(checkTest(qs).find((i) => i.code === "duplicate_prompt")?.message).toBe("第1問と第2問の問題文が同じです");
   });
 
+  it("別の問題と同じ文を選択肢に使っていると注意を出す（片方が、もう片方の答えを教えてしまう）", () => {
+    const rule = "提案書は、お客様に出す前に、必ず上長の確認を受けてください";
+    const q6 = tq({ prompt: "合わないものは", choices: [rule, "リース契約は、原則として途中で解約できます", "x1", "x2"], answerIndex: 1 }, 0);
+    const q7 = tq({ prompt: "正しいものは", choices: ["a1", rule, "a3", "a4"], answerIndex: 1, quote: `${rule}。` }, 1);
+    const issue = checkTest([q6, q7]).find((i) => i.code === "shared_choice");
+    expect(issue?.level).toBe("warn");
+    expect(issue?.message).toContain("第1問と第2問");
+    // 選択肢が、別の問題の根拠の文（空欄の問題の元の文）と同じ場合も
+    const blank = tq({ prompt: "空欄", choices: ["上長", "人事部", "同僚", "部下"], answerIndex: 0, quote: `${rule}。` }, 2);
+    expect(checkTest([q6, blank]).some((i) => i.code === "shared_choice")).toBe(true);
+    // 短い選択肢（「5年」など）や、根拠の文どうしが同じなのは注意しない
+    const a = tq({ prompt: "p1", choices: ["5年", "4年", "6年", "7年"] }, 3);
+    const b = tq({ prompt: "p2", choices: ["5年", "3年", "6年", "8年"] }, 4);
+    expect(checkTest([a, b]).some((i) => i.code === "shared_choice")).toBe(false);
+  });
+
   it("同じ問題文を見つける", () => {
     const qs = [tq({ prompt: "同じ" }, 0), tq({ prompt: "同じ", answerIndex: 1 }, 1)];
     expect(checkTest(qs).some((i) => i.code === "duplicate_prompt")).toBe(true);

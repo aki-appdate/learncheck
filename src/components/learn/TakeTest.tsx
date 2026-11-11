@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useApp } from "../AppProvider";
 import { MaterialExcerpt } from "../MaterialExcerpt";
 import { btn, ChoiceMark, cx, Icon, QNo } from "../ui";
@@ -19,6 +19,15 @@ export function TakeTest({ test, onExit }: { test: Test; onExit: () => void }) {
   const [finished, setFinished] = useState<Attempt | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const resultRef = useRef<HTMLDivElement>(null);
+
+  // 答えたら、正誤・解説・根拠が見える位置まで送る（スマホでは選択肢の下に隠れて見えないため）
+  useEffect(() => {
+    if (!revealed) return;
+    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    resultRef.current?.scrollIntoView({ block: "start", behavior: reduce ? "auto" : "smooth" });
+  }, [revealed, index]);
 
   const q = test.questions[index];
   const isLast = index === test.questions.length - 1;
@@ -140,7 +149,7 @@ export function TakeTest({ test, onExit }: { test: Test; onExit: () => void }) {
             </button>
           </div>
         ) : (
-          <div className="mt-6 space-y-4" aria-live="polite">
+          <div ref={resultRef} className="mt-6 scroll-mt-4 space-y-4 lg:scroll-mt-20" aria-live="polite">
             <p className={cx("flex items-center gap-2 border-l-4 px-4 py-3 text-lg font-bold", correct ? "border-good bg-good-soft text-good" : "border-bad bg-bad-soft text-bad")}>
               <span className="text-2xl leading-none" aria-hidden>
                 {correct ? "○" : "×"}

@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useApp } from "@/components/AppProvider";
 import { Header } from "@/components/Header";
 import { MaterialExcerpt } from "@/components/MaterialExcerpt";
+import { QuoteTryout } from "@/components/QuoteTryout";
 import { ChoiceMark, cx, Icon, QNo, Seal } from "@/components/ui";
 import { CHOICE_MARKS } from "@/lib/quality";
 
@@ -28,25 +29,6 @@ const STEPS = [
     who: "受講者 → 研修担当",
     title: "受けて、つまずきを見直す",
     body: "受講者は答えるとすぐ、正解と資料の該当箇所が分かります。研修担当は問題・部署ごとの正答率から、フォロー研修を決めます。",
-  },
-];
-
-const PROMISES = [
-  {
-    title: "AIの出力は、すべて「案」",
-    body: "テストは研修担当が1問ずつ確認してから公開します。フォロー研修の案も参考情報として出し、最後に決めるのは人です。",
-  },
-  {
-    title: "根拠は、言い換えを認めない",
-    body: "同じとみなすのは空白・全角半角・かっこの形などの書き方の揺れだけ。言い換えた引用は「見つからない」と扱い、作り話を見逃しません。",
-  },
-  {
-    title: "返答の形を固定し、違えば使わない",
-    body: "AIには決まった形で答えさせ、受け取った値も同じ形で検証します。フォローの案で挙げた根拠の問題が実在しないときは、その気づきを捨てます。",
-  },
-  {
-    title: "AIが使えなくても止まらない",
-    body: "未設定・無料枠の上限・通信エラーのときは、資料の文からルールで問題を作る「見本の返答」に切り替えます。どちらが動いたかは画面右上に出ます。",
   },
 ];
 
@@ -170,24 +152,23 @@ export default function Home() {
           </ol>
         </section>
 
-        {/* AIの扱い */}
+        {/* 根拠の照らし合わせ：確認画面と同じ処理を、その場で動かして見せる */}
         <section className="border-y border-line bg-paper">
           <div className="mx-auto grid max-w-6xl gap-x-14 gap-y-8 px-4 py-14 sm:px-6 sm:py-16 lg:grid-cols-[16rem_1fr]">
             <div>
-              <h2 className="text-[22px] font-bold">AIの扱いで<br className="hidden lg:block" />気をつけたこと</h2>
-              <p className="mt-2 text-sm leading-relaxed text-ink-soft">研修の内容を間違って覚えさせないことを、いちばん大事にしました。</p>
+              <h2 className="text-[22px] font-bold">
+                <span className="inline-block">根拠の照らし合わせを、</span>
+                <span className="inline-block">ここで試せます</span>
+              </h2>
+              <p className="mt-2 text-sm leading-relaxed text-ink-soft">
+                AIが示した根拠の文が、資料に一字一句あるかを確かめます。研修担当の確認画面と同じ処理です。
+              </p>
+              <p className="mt-3 text-sm leading-relaxed text-ink-soft">
+                同じとみなすのは、空白・全角と半角・かっこの形などの<b className="font-bold text-ink">書き方の揺れだけ</b>
+                。言い換えた文は、意味が近くても「見つからない」と扱います。
+              </p>
             </div>
-            <dl className="grid gap-x-10 sm:grid-cols-2">
-              {PROMISES.map((p) => (
-                <div key={p.title} className="border-t border-line-strong py-5">
-                  <dt className="flex items-start gap-2 font-bold">
-                    <Icon name="check" className="mt-1 size-4 text-brand" />
-                    {p.title}
-                  </dt>
-                  <dd className="mt-1.5 pl-6 text-sm leading-[1.85] text-ink-soft">{p.body}</dd>
-                </div>
-              ))}
-            </dl>
+            <QuoteTryout />
           </div>
         </section>
 

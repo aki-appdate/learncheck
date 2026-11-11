@@ -2,10 +2,13 @@
 // AIと同じ形（GeneratedQuestion / FollowUpInsight）を返すので、画面側はどちらが動いたかを気にしなくてよい。
 //
 // 問題の作り方は2種類。引用文は資料の文をそのまま切り出すので、必ず資料の中にある。
-// ・空欄の問題：大事そうな文の中の語句（数字・カタカナ語・漢字の言葉）を空欄にする。誤答は、資料の別の文に出てくる
-//   同じ種類の語句か、正解に近い数字。並べて書かれた言葉など「入れても正しく読めてしまう」誤答は使わない。
-// ・きまりの問題：「〜してはいけません」「必ず〜」のような文を選び、ほかのきまりの文を逆の意味に書き換えたものを
-//   誤答にして「正しいもの」を選ばせる（または逆に、書き換えた1つを「合わないもの」として選ばせる）。
+// ・空欄の問題：大事そうな文の中の語句（数字・決まった仲間の言葉）を空欄にする。誤答は、資料の別の文に出てくる
+//   同じ仲間の語句か、正解に近い数字。並べて書かれた言葉など「入れても正しく読めてしまう」誤答や、
+//   「A・B・Cの（3つ）」のように問題文を数えれば分かる数は使わない。
+// ・きまりの問題：「『○○』の項目について、正しいもの（合わないもの）はどれですか」。資料の文を、意味が逆になる
+//   自然な言い方（「必ず」→「できれば」、「30分以内」→「60分以内」など）に書き換えたものを、間違いの選択肢にする。
+// どちらも、資料の1つの文はテスト全体で1回しか使わない（ある問題の選択肢が、別の問題の答えを教えないように）。
+// 資料の前置き（「この資料では…まとめます」）や、前の文を読まないと分からない文は使わない。
 
 import { CHOICE_MARKS } from "../quality";
 import { LOW_RATE, pct, type TestStats } from "../analytics";
@@ -71,8 +74,8 @@ export type Term = {
 };
 
 const UNITS = [
-  "営業日以内", "時間以内", "日以内", "分以内", "秒以内", "文字以上", "種類以上", "か月", "ヶ月", "週間", "分間",
-  "文字", "種類", "時間", "年", "日", "分", "秒", "枚", "台", "名", "人", "回", "件", "点", "つ", "時", "%", "％",
+  "営業日以内", "時間以内", "日以内", "分以内", "秒以内", "文字以上", "種類以上", "桁以上", "か月", "ヶ月", "週間", "分間",
+  "文字", "種類", "時間", "桁", "年", "日", "分", "秒", "枚", "台", "名", "人", "回", "件", "点", "つ", "時", "%", "％",
 ];
 const NUM_RE = new RegExp(`(?<![-\\d.])(\\d+)(${UNITS.map((u) => u.replace(/[%％]/g, "\\$&")).join("|")})`, "g");
 const KATAKANA_RE = /[ァ-ヴ][ァ-ヴー]+/g;
@@ -139,6 +142,25 @@ export function extractTerms(text: string): Term[] {
 /** 「〜してはいけません」「〜は禁止です」のような文。名詞を空欄にすると、ほかの言葉でも正しく読めてしまう */
 const PROHIBIT_RE = /いけません|禁止|ないで|ません。$|避けます/;
 
+/** 物の数を表す単位（「4つの機能」「2種類」「4点」） */
+const COUNT_UNITS = new Set(["つ", "点", "種類", "項目", "個"]);
+
+/**
+ * 数字の前に並べて書かれた物の数が、その数字以上あるか（＝問題文を数えれば答えが分かる）。
+ * 「A・B・Cの」「AとBの」「A、B、Cの」の3つの並べ方を数える。
+ */
+export function countable(before: string, value: number): boolean {
+  if (value < 2) return false;
+  const head = before.replace(/の$/, "");
+  const lastClause = head.split("、").pop() ?? "";
+  const counts = [
+    lastClause.split("・").length,
+    lastClause.split("と").filter(Boolean).length,
+    head.split("、").filter(Boolean).length,
+  ];
+  return counts.some((n) => n >= 2 && n >= value);
+}
+
 /** 空欄にしてよい語句か */
 function blankable(t: Term, sentence: string): boolean {
   const before = sentence[t.index - 1] ?? "";
@@ -151,9 +173,13 @@ function blankable(t: Term, sentence: string): boolean {
     if (t.value === 1 && t.unit !== "回") return false;
     // 「10〜30名」のような範囲の片方は空欄にしない
     if (/[〜～~\-－]/.test(before) || /[〜～~\-－]/.test(after)) return false;
+    // 「コピー・プリント・スキャン・ファクスの4つ」のように、すぐ前に並べた物の数は、問題文を数えれば分かってしまう
+    if (COUNT_UNITS.has(t.unit ?? "") && countable(sentence.slice(0, t.index), t.value ?? 0)) return false;
     return true;
   }
   if (PROHIBIT_RE.test(sentence)) return false;
+  // 何の仲間か分からない言葉は、空欄に入れても文として読める誤答を選べないので空欄にしない
+  if (!categoryOf(t.text)) return false;
   // 「パソコンやスマートフォン」のように並べた言葉の1つは、ほかの言葉でも正しく読めてしまう
   if (/[や・と]/.test(before) || /[や・と]/.test(after)) return false;
   return true;
@@ -170,6 +196,27 @@ function pickAnswerTerm(terms: Term[], sentence: string, numberOk: boolean): Ter
     if (cands.length) return [...cands].sort((a, b) => b.text.length - a.text.length)[0];
   }
   return null;
+}
+
+// ───────── 言葉の仲間 ─────────
+
+/**
+ * 言葉の空欄の誤答は、正解と同じ仲間の言葉だけにする（人・部署どうし、機器どうし…）。
+ * 「新人の（営業担当）が」に「疑問点」「印刷」を入れると文として読めず、消去法で答えが分かってしまうため。
+ * どの仲間にも入らない言葉は空欄にしない（その分は、数字やきまりの問題で補う）。
+ */
+const CATEGORIES: [string, RegExp][] = [
+  ["人・部署", /^(?:上長|上司|部下|同僚|新人|家族|本人)$|(?:担当|係|員|者|部|課|窓口|職|センター)$/],
+  ["持ち歩く端末", /(?:パソコン|スマートフォン|タブレット|端末|携帯)$/],
+  ["事務機器", /(?:シュレッダー|プリンター|ホワイトボード|複合機|ルーター)$/],
+  ["記録する所", /(?:メモリ|フォルダ|デスクトップ|ディスク)$/],
+  ["書類・データ", /(?:書|簿|名刺|ファイル|データ|写真|メール|フォルダ|記録)$/],
+  ["ハラスメント", /ハラスメント$/],
+  ["場所", /(?:カフェ|飲食店|駅|書庫|事務所|会議室)$/],
+];
+
+export function categoryOf(word: string): string | null {
+  return CATEGORIES.find(([, re]) => re.test(word))?.[0] ?? null;
 }
 
 // ───────── 誤答を作る ─────────
@@ -247,8 +294,9 @@ function buildDistractors(
   } else {
     // 名詞の空欄には、同じ種類（カタカナ語どうし・漢字の言葉どうし）の言葉だけを使う。
     // 漢字の言葉は、後ろに同じ助詞が続く言葉（同じような使われ方をしている言葉）に限る
+    const cat = categoryOf(answer.text);
     const same = shuffle(
-      ctx.pool.filter((t) => t.kind === answer.kind && (answer.kind !== "kanji" || t.next === answer.next)),
+      ctx.pool.filter((t) => t.kind === answer.kind && categoryOf(t.text) === cat && (answer.kind !== "kanji" || t.next === answer.next)),
       rand,
     ).map((t) => t.text);
     candidates =
@@ -265,7 +313,8 @@ function buildDistractors(
 // ───────── きまり・手順を問う問題（正しいもの／合わないものを選ぶ） ─────────
 
 /** 資料の文を「逆の意味」に書き換える規則。上から順に、最初に当てはまったものを使う */
-const FLIPS: [RegExp, string][] = [
+/** [当てはまる形, 書き換え後, この形の文には使わない（不自然になる）] */
+const FLIPS: [RegExp, string, RegExp?][] = [
   [/てはいけません。?$/, "てもかまいません"],
   [/ことは禁止です。?$/, "ことは認められています"],
   [/ことは禁止されています。?$/, "ことは認められています"],
@@ -276,7 +325,46 @@ const FLIPS: [RegExp, string][] = [
   [/事前に/, "事後に"],
   [/その日のうちに/, "1週間以内に"],
   [/必ず/, "できれば"],
-  [/ません。?$/, "ます"],
+  [/は使いません。?$/, "を使ってもかまいません"],
+  // 「共有フォルダにだけ保存し、USBメモリには保存しません」を「保存します」にすると前半と食い違うので、「だけ」の文は除く
+  [/ません。?$/, "ます", /だけ/],
+  // 「〜します」の文は、ただ打ち消すと「〜する場合がありません」のような不自然な文になりやすい。
+  // 意味が逆になり、日本語としても自然に読める書き換えだけを使う
+  [/の(確認|承認|許可)を受けてから/, "の$1を受けずに"],
+  [/の(確認|承認|許可)を受けて/, "の$1を受けずに"],
+  [/当日中に/, "翌週中に"],
+  [/別の手段で/, "同じ手段で"],
+  [/同じ条件で/, "別々の条件で"],
+  [/鍵のかかる/, "鍵のかからない"],
+  [/と同じように扱います。?$/, "とは区別して扱います"],
+  [/として扱います。?$/, "としては扱いません"],
+  [/にあたります。?$/, "にはあたりません"],
+  [/(ハラスメント|個人情報)です。?$/, "$1にはあたりません"],
+  [/対象になります。?$/, "対象になりません"],
+  [/ことがあります。?$/, "ことはありません"],
+  [/減ります。?$/, "増えます"],
+  [/増えます。?$/, "減ります"],
+  [/したりする前に、まず/, "したりしたあとで、"],
+  [/(確認|本人確認)をしてから/, "$1をせずに"],
+  [/は開かずに、/, "は開いて中身を確かめてから、"],
+  [/を付けて([^、。]*)ます。?$/, "を付けずに$1ます"],
+  [/ことも避けます。?$/, "ことは問題ありません"],
+  [/守ります。?$/, "守らなくてもかまいません"],
+  [/([一-龠々]+)ではなく([一-龠々]+)/, "$2ではなく$1"],
+  [/半年前/, "1か月前"],
+  [/本体の正面/, "本体の裏側"],
+  [/場合があります。?$/, "場合はありません"],
+  [/が含まれています。?$/, "は含まれていません"],
+  [/を付けられます。?$/, "は付けられません"],
+  [/できます。?$/, "できません", /れば|\d/],
+  [/やすくなります。?$/, "にくくなります"],
+  [/でも起こります。?$/, "では起こりません", /どちらでも|また/],
+  [/でも受け付けています。?$/, "では受け付けていません"],
+  [/いつでも/, "決められた日だけ"],
+  [/自分で判断せず、/, "まず自分で判断してから、"],
+  [/の範囲でだけ/, "の範囲を超えても"],
+  [/に必要な人だけに/, "に関係なく全員に"],
+  [/その場では答えず、/, "その場で答えたうえで、"],
 ];
 
 const LEAD_RE = /^(?:たとえば|また|一方で|ただし|なお)、/;
@@ -288,7 +376,10 @@ function asChoice(sentence: string): string {
 /** 文を逆の意味に書き換える。書き換えられない文は null */
 export function flipRule(sentence: string): string | null {
   const base = sentence.replace(LEAD_RE, "");
-  for (const [re, rep] of FLIPS) {
+  // 「悪口も言いません」を「悪口も言います」にすると日本語として不自然なので、書き換えない
+  if (/も[^、。]*ません。?$/.test(base) && !/てはいけません。?$|必要はありません。?$/.test(base)) return null;
+  for (const [re, rep, skip] of FLIPS) {
+    if (skip?.test(base)) continue;
     const m = base.match(re);
     // 「必ず故障しません」のような、かぎかっこの中の言葉は書き換えない
     if (m && !insideQuote(base, m.index!)) {
@@ -296,7 +387,24 @@ export function flipRule(sentence: string): string | null {
       return out === asChoice(sentence) ? null : out;
     }
   }
-  return null;
+  return flipNumber(base);
+}
+
+/**
+ * 文の中の数字を、資料と違う数字に書き換える（「30分以内が目安です」→「60分以内が目安です」）。
+ * 「以上」は小さく、「以内」は大きくして、書き換えた文が資料のきまりを満たしてしまわないようにする
+ * （「12文字以上」を「16文字以上」にすると、16文字のパスワードはきまりどおりなので、間違いと言えない）。
+ */
+function flipNumber(base: string): string | null {
+  const t = extractTerms(base)
+    .filter((x) => x.kind === "number" && blankable(x, base) && !insideQuote(base, x.index))
+    .pop();
+  if (!t) return null;
+  const v = t.value!;
+  const step = v < 10 ? 1 : v < 20 ? 4 : v < 100 ? 30 : 100;
+  const n = t.unit!.endsWith("以上") ? v - step : t.unit!.endsWith("以内") ? v + step : v + step;
+  if (n <= 0) return null;
+  return `${base.slice(0, t.index)}${n}${t.unit}${base.slice(t.index + t.text.length)}`.replace(/。$/, "");
 }
 
 // ───────── 大事そうな文の点数 ─────────
@@ -321,6 +429,31 @@ function headingOf(body: string, at: number): string | null {
     if (m) return m[1].trim();
   }
   return null;
+}
+
+/** 文が載っている項目の番号（資料の頭から数えた見出しの数） */
+function sectionIndex(body: string, at: number): number {
+  return body
+    .slice(0, at)
+    .split("\n")
+    .filter((l) => /^\s*\d+[.．]\s*.+$/.test(l)).length;
+}
+
+/** 資料そのものについての前置きの文（「この資料では、新人の営業担当が説明できるよう…まとめます」） */
+const META_RE = /この資料|まとめます|できるよう、|研修用の架空|架空のもの/;
+
+/** 前の文を読まないと何の話か分からない文（「その場で〜」「出したあとは〜」「〜ためです」） */
+const CONTEXTLESS_RE = /^(?:その|それ|これ|この|あの|次は|出したあと|同じ|各部署)|これに加えて|そのままにしておいて|当てはまります。$|ためです。$/;
+
+/**
+ * 1文だけ取り出しても意味が通じるか。よくある質問の答え（「答：各部署で写しを持たないでください。」）は、
+ * 問いを読まないと何の話か分からないことが多いので、「〜は、」と話題が書かれた文だけを使う。
+ */
+function hasContext(body: string, s: Sentence): boolean {
+  if (CONTEXTLESS_RE.test(s.text)) return false;
+  const lineStart = body.lastIndexOf("\n", s.start - 1) + 1;
+  const isAnswer = /^\s*(?:答|A)[：:]/.test(body.slice(lineStart, s.start + 1));
+  return !isAnswer || s.text.includes("は、");
 }
 
 function where(heading: string | null): string {
@@ -361,13 +494,31 @@ export function sampleQuiz(input: QuizInput): GeneratedQuestion[] {
   return out;
 }
 
+/**
+ * 文はテスト全体で1回しか使わないので、選び方の順番しだいで、資料の文が足りなくなることがある。
+ * 指定の数に届かなければ、選ぶ順番を変えて何度か作り直し、一番多く作れたものを使う（同じ入力なら同じ結果）
+ */
 function buildQuiz(input: QuizInput, penalty: Map<string, number>): GeneratedQuestion[] {
+  let best: GeneratedQuestion[] = [];
+  for (let attempt = 0; attempt < 60; attempt++) {
+    const qs = buildQuizOnce(input, penalty, attempt);
+    if (qs.length > best.length) best = qs;
+    if (best.length >= input.count) break;
+  }
+  return best;
+}
+
+function buildQuizOnce(input: QuizInput, penalty: Map<string, number>, attempt: number): GeneratedQuestion[] {
   const { body, count, difficulty } = input;
-  const rand = mulberry32(hashString(`${body.length}:${body.slice(0, 200)}`) ^ (count * 7919) ^ (DIFF_SEED[difficulty] + (input.variant ?? 0) * 104729));
-  const sentences = splitSentences(body);
+  const rand = mulberry32(
+    hashString(`${body.length}:${body.slice(0, 200)}`) ^ (count * 7919) ^ (DIFF_SEED[difficulty] + (input.variant ?? 0) * 104729) ^ (attempt * 7777),
+  );
+  const all = splitSentences(body);
+  // 「この資料では…まとめます」のような資料の前置きは、問題にも選択肢にもしない
+  const sentences = all.filter((x) => !META_RE.test(x.text) && hasContext(body, x));
   const pool: Term[] = [];
   const seenTerm = new Set<string>();
-  for (const s of sentences) {
+  for (const s of all) {
     for (const t of extractTerms(s.text)) {
       const k = `${t.kind}:${normalize(t.text).text}`;
       if (!seenTerm.has(k)) {
@@ -376,7 +527,7 @@ function buildQuiz(input: QuizInput, penalty: Map<string, number>): GeneratedQue
       }
     }
   }
-  const ctx = { body, pool, siblings: siblingPairs(sentences) };
+  const ctx = { body, pool, siblings: siblingPairs(all) };
 
   // 数字の問題は全体のおよそ半分まで。きまり・手順を問う問題を3割ほど入れる
   const numberCap = Math.max(1, Math.floor(count / 2));
@@ -386,75 +537,97 @@ function buildQuiz(input: QuizInput, penalty: Map<string, number>): GeneratedQue
   const usedSentences = new Set<number>();
   const usedAnswers = new Set<string>();
 
-  // きまりの文（逆の意味に書き換えられる、短めの文）
+  // 選択肢にできる文（短めで、資料の前置きではない文）。文ごとに、載っている項目の番号と見出しを覚えておく
+  const sectionOf = (st: number) => sectionIndex(body, st);
+  const choiceable = sentences.filter((s) => normalize(s.text).text.length <= 80);
+  // きまりの文（逆の意味に書き換えられる文）
   const rules = shuffle(
-    sentences.filter((s) => normalize(s.text).text.length <= 70 && flipRule(s.text) !== null),
+    choiceable.filter((s) => flipRule(s.text) !== null),
     rand,
   );
   const usedPrompts = new Set<string>();
-  const addRule = () => {
-    if (rules.length < 4) return false;
-    const nRule = drafts.filter((d) => d.kind === "rule").length;
-    // やさしい＝正しいものを選ぶ、ふつう・むずかしい＝「合わないもの」も混ぜる
-    const askWrong = difficulty === "easy" ? false : difficulty === "hard" ? nRule % 2 === 0 : nRule % 2 === 1;
-    const promptOf = (s: Sentence) => {
-      const topic = (headingOf(body, s.start) ?? "").replace(/^\d+[.．]\s*/, "");
-      const about = topic ? `「${topic}」など、` : "";
-      return askWrong ? `${about}資料の内容と合わないものはどれですか。` : `${about}資料の内容として正しいものはどれですか。`;
-    };
-    const free = (s: Sentence) => !usedSentences.has(s.start) && !usedPrompts.has(promptOf(s));
-    const target = [...rules].sort((a, b) => (penalty.get(a.text) ?? 0) - (penalty.get(b.text) ?? 0)).find(free);
-    if (!target) return false;
-    usedSentences.add(target.start);
-    const prompt = promptOf(target);
-    usedPrompts.add(prompt);
-    // 誤答には、資料の近くの項目に書かれたきまりを使う（話題がそろい、消去法で選びにくくなる）
-    const others = shuffle(
-      rules
-        .filter((s) => s !== target)
-        .sort((a, b) => Math.abs(a.start - target.start) - Math.abs(b.start - target.start))
-        .slice(0, 5),
-      rand,
-    ).slice(0, 3);
-    const heading = headingOf(body, target.start);
-    if (askWrong) {
-      const flipped = flipRule(target.text)!;
-      drafts.push({
-        start: target.start,
-        kind: "rule",
-        q: {
-          prompt,
-          answer: flipped,
-          distractors: others.map((s) => asChoice(s.text)),
-          explanation: fitExplanation([
-            `${where(heading)}には「${target.text}」とあります。`,
-            `「${flipped}」は、これと逆の内容です。ほかの3つは資料のとおりです。`,
-          ]),
-          quote: target.text,
-          difficulty,
-        },
-      });
-    } else {
-      drafts.push({
-        start: target.start,
-        kind: "rule",
-        q: {
-          prompt,
-          answer: asChoice(target.text),
-          distractors: others.map((s) => flipRule(s.text)!),
-          explanation: fitExplanation([
-            `${where(heading)}に「${target.text}」と書かれています。`,
-            `ほかの選択肢は、資料のきまりを逆の内容に書き換えたものです（たとえば資料では「${asChoice(others[0].text)}」）。`,
-          ]),
-          quote: target.text,
-          difficulty,
-        },
-      });
-    }
-    return true;
+  /** 選択肢の長さがそろっているか（一番長いものが一番短いものの2倍まで）。長さで答えが分からないように */
+  const balanced = (texts: string[]) => {
+    const lens = texts.map((t) => normalize(t).text.length);
+    return Math.max(...lens) <= Math.min(...lens) * 2;
   };
-  for (let i = 0; i < ruleTarget; i++) if (!addRule()) break;
-
+  const addRule = () => {
+    const nRule = drafts.filter((d) => d.kind === "rule").length;
+    // やさしい＝正しいものを選ぶ、ふつう・むずかしい＝「合わないもの」も混ぜる。
+    // 作れなかったときは、もう一方の聞き方で作る（「合わないもの」は書き換えた文が1つあれば作れるので作りやすい）
+    const first = difficulty === "easy" ? false : difficulty === "hard" ? nRule % 2 === 0 : nRule % 2 === 1;
+    return addRuleAs(first) || addRuleAs(!first);
+  };
+  const addRuleAs = (askWrong: boolean) => {
+    // 問う文は「必ず」「〜してはいけません」のような、きまりらしい文を先にする
+    // 「正しいもの」を選ぶ問題の答えは資料のとおりの文なので、書き換えられない文でもよい
+    const targets = (askWrong ? rules : shuffle(choiceable, rand))
+      .filter((s) => !usedSentences.has(s.start))
+      .sort((a, b) => (penalty.get(a.text) ?? 0) - (penalty.get(b.text) ?? 0) || Number(RULE_WORDS.test(b.text)) - Number(RULE_WORDS.test(a.text)));
+    for (const [target, near] of targets.flatMap((t) => [1, 2, 3].map((n) => [t, n] as const))) {
+      const answer = askWrong ? flipRule(target.text)! : asChoice(target.text);
+      // 誤答には、同じ項目か、となりの項目の文を使う（話題がそろい、消去法で選びにくくなる）。
+      // 「正しいもの」を選ぶ問題では、誤答は逆の意味に書き換えた文。「合わないもの」を選ぶ問題では、資料のとおりの文。
+      // どの文も、テスト全体で1回しか使わない（ある問題の選択肢が、別の問題の答えを教えてしまわないように）
+      const sec = sectionOf(target.start);
+      const pool = (askWrong ? choiceable : rules)
+        .filter((s) => s !== target && !usedSentences.has(s.start) && Math.abs(sectionOf(s.start) - sec) <= near)
+        .map((s) => ({ s, text: askWrong ? asChoice(s.text) : flipRule(s.text)! }))
+        .sort(
+          (x, y) =>
+            Math.abs(sectionOf(x.s.start) - sec) - Math.abs(sectionOf(y.s.start) - sec) ||
+            Math.abs(x.text.length - answer.length) - Math.abs(y.text.length - answer.length),
+        );
+      const picked: typeof pool = [];
+      for (const c of pool) {
+        if (picked.length === 3) break;
+        if (balanced([answer, ...picked.map((p) => p.text), c.text])) picked.push(c);
+      }
+      if (picked.length < 3) continue;
+      const others = shuffle(picked, rand);
+      // 問題文には、選択肢が載っている項目の見出しを、資料の順に並べる
+      const headings = [...new Set([target, ...others.map((o) => o.s)].sort((x, y) => x.start - y.start).map((x) => headingOf(body, x.start)))]
+        .filter((h): h is string => !!h)
+        .map((h) => `「${h.replace(/^\d+[.．]\s*/, "")}」`);
+      if (headings.length > 3) continue;
+      const about = headings.length ? `${headings.join("")}の項目について、` : "";
+      const prompt = askWrong ? `${about}資料の内容と合わないものはどれですか。` : `${about}正しいものはどれですか。`;
+      if (usedPrompts.has(prompt)) continue;
+      usedPrompts.add(prompt);
+      usedSentences.add(target.start);
+      others.forEach((o) => usedSentences.add(o.s.start));
+      const heading = headingOf(body, target.start);
+      drafts.push({
+        start: target.start,
+        kind: "rule",
+        q: askWrong
+          ? {
+              prompt,
+              answer,
+              distractors: others.map((o) => o.text),
+              explanation: fitExplanation([
+                `${where(heading)}には「${target.text}」とあります。`,
+                `「${answer}」は、これと逆の内容です。ほかの3つは資料のとおりです。`,
+              ]),
+              quote: target.text,
+              difficulty,
+            }
+          : {
+              prompt,
+              answer,
+              distractors: others.map((o) => o.text),
+              explanation: fitExplanation([
+                `${where(heading)}に「${target.text}」と書かれています。`,
+                `ほかの選択肢は、資料の内容を逆の意味や違う数字に書き換えたものです（たとえば資料では「${asChoice(others[0].s.text)}」）。`,
+              ]),
+              quote: target.text,
+              difficulty,
+            },
+      });
+      return true;
+    }
+    return false;
+  };
   // 点数の高い順（同点は少しだけ揺らす）に、空欄と誤答を作れる文を集める。
   const ranked = sentences
     .map((s) => {
@@ -465,48 +638,58 @@ function buildQuiz(input: QuizInput, penalty: Map<string, number>): GeneratedQue
     .sort((a, b) => b.score - a.score);
 
   let wordNo = 0;
-  for (const r of ranked) {
-    if (drafts.length >= count) break;
-    if (usedSentences.has(r.s.start)) continue;
-    const numbers = drafts.filter((d) => d.kind === "number").length;
-    const answer = pickAnswerTerm(r.terms, r.s.text, numbers < numberCap);
-    if (!answer || usedAnswers.has(normalize(answer.text).text)) continue;
-    const distractors = buildDistractors(answer, r.s.text, ctx, difficulty, rand);
-    if (!distractors) continue;
-    usedAnswers.add(normalize(answer.text).text);
-    usedSentences.add(r.s.start);
-    // 「クリアデスク」のようにかぎかっこで囲まれた言葉は、かっこごと空欄にする（「（　）」が二重にならないように）
-    const quoted = r.s.text[answer.index - 1] === "「" && r.s.text[answer.index + answer.text.length] === "」";
-    const from = quoted ? answer.index - 1 : answer.index;
-    const to = answer.index + answer.text.length + (quoted ? 1 : 0);
-    const blanked = `${r.s.text.slice(0, from)}（　　　）${r.s.text.slice(to)}`;
-    const heading = headingOf(body, r.s.start);
-    const isNumber = answer.kind === "number";
-    const explanation = isNumber
-      ? fitExplanation([
-          `${where(heading)}に「${r.s.text}」とあります。`,
-          `正しい数字は「${answer.text}」です。「${distractors[0]}」のような近い数字と取り違えないようにしましょう。`,
-        ])
-      : wordNo++ % 2 === 0
-        ? fitExplanation([`（　　　）に入るのは「${answer.text}」です。`, `${where(heading)}には「${r.s.text}」と書かれています。`])
-        : fitExplanation([`${where(heading)}の「${r.s.text}」の部分です。`, `「${answer.text}」の代わりに「${distractors[0]}」などを入れると、資料の内容と合わなくなります。`]);
-    drafts.push({
-      start: r.s.start,
-      kind: isNumber ? "number" : "word",
-      q: {
-        prompt: `資料の内容として正しくなるように、次の文の（　　　）に入る言葉を選んでください。\n「${blanked}」`,
-        answer: answer.text,
-        distractors,
-        explanation,
-        quote: r.s.text,
-        difficulty,
-      },
-    });
-  }
-  // 空欄の問題が足りなければ、きまりを問う問題で補う
+  const usedUnits = new Set<string>();
+  const addBlanks = (limit: number, cap: number) => {
+    for (const r of ranked) {
+      if (drafts.length >= limit) break;
+      if (usedSentences.has(r.s.start)) continue;
+      const numbers = drafts.filter((d) => d.kind === "number").length;
+      const answer = pickAnswerTerm(r.terms, r.s.text, numbers < cap);
+      if (!answer || usedAnswers.has(normalize(answer.text).text)) continue;
+      // 「1分間に（30枚）」「1分間に（50枚）」のように、同じ単位の数字の問題が続くと単調になるので、単位ごとに1問まで
+      if (answer.kind === "number" && usedUnits.has(answer.unit!)) continue;
+      const distractors = buildDistractors(answer, r.s.text, ctx, difficulty, rand);
+      if (!distractors) continue;
+      usedAnswers.add(normalize(answer.text).text);
+      if (answer.kind === "number") usedUnits.add(answer.unit!);
+      usedSentences.add(r.s.start);
+      // 「クリアデスク」のようにかぎかっこで囲まれた言葉は、かっこごと空欄にする（「（　）」が二重にならないように）
+      const quoted = r.s.text[answer.index - 1] === "「" && r.s.text[answer.index + answer.text.length] === "」";
+      const from = quoted ? answer.index - 1 : answer.index;
+      const to = answer.index + answer.text.length + (quoted ? 1 : 0);
+      const blanked = `${r.s.text.slice(0, from)}（　　　）${r.s.text.slice(to)}`;
+      const heading = headingOf(body, r.s.start);
+      const isNumber = answer.kind === "number";
+      const explanation = isNumber
+        ? fitExplanation([
+            `${where(heading)}に「${r.s.text}」とあります。`,
+            `正しい数字は「${answer.text}」です。「${distractors[0]}」のような近い数字と取り違えないようにしましょう。`,
+          ])
+        : wordNo++ % 2 === 0
+          ? fitExplanation([`（　　　）に入るのは「${answer.text}」です。`, `${where(heading)}には「${r.s.text}」と書かれています。`])
+          : fitExplanation([`${where(heading)}の「${r.s.text}」の部分です。`, `「${answer.text}」の代わりに「${distractors[0]}」などを入れると、資料の内容と合わなくなります。`]);
+      drafts.push({
+        start: r.s.start,
+        kind: isNumber ? "number" : "word",
+        q: {
+          prompt: `資料の内容として正しくなるように、次の文の（　　　）に入る言葉を選んでください。\n「${blanked}」`,
+          answer: answer.text,
+          distractors,
+          explanation,
+          quote: r.s.text,
+          difficulty,
+        },
+      });
+    }
+  };
+
+  // 先に空欄の問題を作り（その文を、きまりの問題の選択肢に使われないように）、残りをきまりの問題にする。
+  // それでも足りなければ、数字の空欄を少しだけ多めに許して補う
+  addBlanks(count - ruleTarget, numberCap);
   while (drafts.length < count && addRule()) {
     /* 追加し続ける */
   }
+  addBlanks(count, Math.ceil(count * 0.6));
 
   drafts.sort((a, b) => a.start - b.start);
   const chosen = drafts.slice(0, count);
@@ -534,14 +717,42 @@ function shorten(s: string, n = 28): string {
   return t.length > n ? `${t.slice(0, n)}…` : t;
 }
 
+/** 傾向を言うのに必要な受講者の数。これより少ないと、1人の答えで正答率が0%にも100%にもなってしまう */
+export const MIN_LEARNERS = 3;
+
+/** 受講者が少ないときの返答。見出しも含めて「まだ結論は出せない」だけを伝え、問題や部署の良し悪しは言わない */
+export function thinFollowUp(stats: TestStats): FollowUpInsight {
+  const n = stats.learnerCount;
+  return {
+    headline: "まだ受講者が少ないため、結論は出せません",
+    findings: [
+      {
+        title: `受講したのは、まだ${n}人です`,
+        detail: `傾向を見る目安（${MIN_LEARNERS}人）に届いていません。${n}人の答えだけで「伝わっていない」と決めないよう、問題や部署ごとの気づきは出していません。`,
+        // 特定の問題を根拠に挙げると、その問題に何かあるように読めてしまうので挙げない
+        evidenceQuestionIds: [],
+      },
+    ],
+    actions: [
+      stats.notTaken.length
+        ? `まだ受けていない${stats.notTaken.length}人に受講をうながし、${MIN_LEARNERS}人以上になってから、もう一度分析する`
+        : `受講者が${MIN_LEARNERS}人以上になってから、もう一度分析する`,
+    ],
+  };
+}
+
 export function sampleFollowUp(test: Test, stats: TestStats, people: Person[]): FollowUpInsight {
+  if (stats.learnerCount < MIN_LEARNERS) return thinFollowUp(stats);
   type Finding = FollowUpInsight["findings"][number];
   const qById = new Map(test.questions.map((q) => [q.id, q]));
   const lowFindings: Finding[] = [];
   const lowActions: string[] = [];
 
+  // 部署の気づきで取り上げる問題は、全体の気づきでは重ねて取り上げない（同じ問題が2回出ないように）
+  const gaps = stats.departmentGaps.slice(0, 1);
+  const gapIds = new Set(gaps.map((g) => g.questionId));
   const low = stats.questions
-    .filter((q) => q.answered >= 3 && q.correctRate < LOW_RATE)
+    .filter((q) => q.answered >= MIN_LEARNERS && q.correctRate < LOW_RATE && !gapIds.has(q.questionId))
     .sort((a, b) => a.correctRate - b.correctRate)
     .slice(0, 2);
 
@@ -561,7 +772,7 @@ export function sampleFollowUp(test: Test, stats: TestStats, people: Person[]): 
   // 特定の部署で、全体より大きく正答率が低い問題（例：カスタマーサポートの3人が第10問を全員間違えた）
   const gapFindings: Finding[] = [];
   const gapActions: string[] = [];
-  for (const g of stats.departmentGaps.slice(0, 1)) {
+  for (const g of gaps) {
     const q = qById.get(g.questionId)!;
     const wrong = g.topWrong;
     gapFindings.push({

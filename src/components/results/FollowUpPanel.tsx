@@ -2,9 +2,10 @@
 
 import { useState } from "react";
 import { useApp } from "../AppProvider";
-import { AiSourceBadge, btn, Icon } from "../ui";
+import { AiSourceBadge, btn, cx, Icon } from "../ui";
 import { suggestFollowUp, type AiResult } from "@/lib/ai";
 import type { TestStats } from "@/lib/analytics";
+import { MIN_LEARNERS } from "@/lib/ai/sample";
 import type { FollowUpInsight, Test } from "@/lib/types";
 
 export function FollowUpPanel({ test, stats, onOpenQuestion }: { test: Test; stats: TestStats; onOpenQuestion: (questionId: string) => void }) {
@@ -37,14 +38,21 @@ export function FollowUpPanel({ test, stats, onOpenQuestion }: { test: Test; sta
             <p className="max-w-xl flex-1 basis-64 text-sm leading-relaxed text-ink-soft">
               {stats.learnerCount === 0
                 ? "受講結果がまだないため、案を出せません。受講者が受けると押せるようになります。"
-                : "問題ごとの正答率と誤答の選ばれ方から、伝わっていない所とフォローの案を出します。気づきごとに根拠の問題を開いて確かめられます。"}
+                : stats.learnerCount < MIN_LEARNERS
+                  ? `受講したのはまだ${stats.learnerCount}人です。${MIN_LEARNERS}人未満では傾向を言い切れないため、「まだ結論は出せない」という案になります。`
+                  : "問題ごとの正答率と誤答の選ばれ方から、伝わっていない所とフォローの案を出します。気づきごとに根拠の問題を開いて確かめられます。"}
             </p>
           </div>
         ) : (
           <div className="space-y-5">
             {state.note && <p className="border-l-[3px] border-line-strong bg-canvas px-3 py-2 text-xs leading-relaxed text-ink-soft">{state.note}</p>}
             <p className="text-[19px] font-bold leading-snug">{state.value.headline}</p>
-            <ol className="grid gap-px overflow-hidden rounded-[3px] border border-line bg-line md:grid-cols-3">
+            <ol
+              className={cx(
+                "grid gap-px overflow-hidden rounded-[3px] border border-line bg-line",
+                state.value.findings.length >= 3 ? "md:grid-cols-3" : state.value.findings.length === 2 ? "md:grid-cols-2" : "",
+              )}
+            >
               {state.value.findings.map((f, i) => (
                 <li key={f.title} className="flex flex-col bg-surface p-4">
                   <p className="flex gap-2 font-bold leading-snug">
@@ -52,18 +60,20 @@ export function FollowUpPanel({ test, stats, onOpenQuestion }: { test: Test; sta
                     {f.title}
                   </p>
                   <p className="mt-1.5 flex-1 text-sm leading-[1.8] text-ink-soft">{f.detail}</p>
-                  <div className="mt-3 flex flex-wrap items-center gap-1.5 border-t border-line pt-2.5">
-                    <span className="text-xs text-ink-muted">根拠の問題</span>
-                    {f.evidenceQuestionIds.map((id) => (
-                      <button
-                        key={id}
-                        className="inline-flex items-center gap-0.5 rounded-[2px] border border-brand/40 bg-brand-soft px-1.5 py-0.5 text-xs font-bold text-brand-strong hover:border-brand"
-                        onClick={() => onOpenQuestion(id)}
-                      >
-                        第{number(id)}問を開く
-                      </button>
-                    ))}
-                  </div>
+                  {f.evidenceQuestionIds.length > 0 && (
+                    <div className="mt-3 flex flex-wrap items-center gap-1.5 border-t border-line pt-2.5">
+                      <span className="text-xs text-ink-muted">根拠の問題</span>
+                      {f.evidenceQuestionIds.map((id) => (
+                        <button
+                          key={id}
+                          className="inline-flex items-center gap-0.5 rounded-[2px] border border-brand/40 bg-brand-soft px-1.5 py-0.5 text-xs font-bold text-brand-strong hover:border-brand"
+                          onClick={() => onOpenQuestion(id)}
+                        >
+                          第{number(id)}問を開く
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </li>
               ))}
             </ol>

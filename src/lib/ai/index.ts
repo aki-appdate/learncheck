@@ -6,7 +6,7 @@ import { followUpJsonSchema, followUpSchema, quizJsonSchema, quizSchema } from "
 import type { AiSource, Difficulty, FollowUpInsight, GeneratedQuestion, Person, Test } from "../types";
 import { generateStructured } from "./gemini";
 import { buildFollowUpPrompt, buildQuizPrompt, FOLLOWUP_SYSTEM, QUIZ_SYSTEM } from "./prompts";
-import { sampleFollowUp, sampleQuiz } from "./sample";
+import { MIN_LEARNERS, sampleFollowUp, sampleQuiz } from "./sample";
 
 // 画面から呼ぶのはこのファイルだけ。
 // Geminiが使えれば使い、使えなければ（未設定・回数の上限・エラー・返答の形が不正）見本の返答に切り替える。
@@ -90,7 +90,8 @@ export async function suggestFollowUp(test: Test, stats: TestStats, people: Pers
     note,
   });
   const app = getFirebaseApp();
-  if (!app || stats.learnerCount === 0) return fallback();
+  // 受講者が少ないうちは結論を出さない（AIに渡すと、1〜2人の答えから言い切った提案が返ってくるため）
+  if (!app || stats.learnerCount < MIN_LEARNERS) return fallback();
   if (!takeQuota()) return fallback(LIMIT_NOTE);
 
   try {

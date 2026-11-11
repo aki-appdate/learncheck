@@ -6,7 +6,7 @@ import { CreateTestForm } from "@/components/admin/CreateTestForm";
 import { TestEditor } from "@/components/admin/TestEditor";
 import { RoleGate } from "@/components/RoleGate";
 import { cx, Icon, PageHead, RateBar } from "@/components/ui";
-import { formatDateJa } from "@/lib/dates";
+import { formatDateJa, formatDateTimeJa } from "@/lib/dates";
 import { findQuote } from "@/lib/quote";
 import type { Test } from "@/lib/types";
 
@@ -99,6 +99,8 @@ function TestGroup({ title, tests, sel, onSelect }: { title: string; tests: Test
                 <span className={cx("block leading-snug", active ? "font-bold text-ink" : "text-ink")}>{t.title}</span>
                 {t.status === "draft" ? (
                   <>
+                    {/* 同じ資料から作った下書きは名前が同じになるので、作った日時で見分けられるようにする */}
+                    <span className="mt-0.5 block text-[11px] text-ink-muted">作成 {formatDateTimeJa(t.createdAt)}</span>
                     <span className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink-muted">
                       <span>
                         採用 {approved}/{t.questions.length}
