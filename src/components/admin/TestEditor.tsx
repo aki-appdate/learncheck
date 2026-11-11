@@ -117,12 +117,21 @@ function DraftEditor({ test, onDeleted }: { test: Test; onDeleted: () => void })
           </div>
           <label className="block">
             <span className="sr-only">テストの名前</span>
-            <input
-              className="w-full rounded-[3px] border border-transparent bg-transparent px-1 py-0.5 -mx-1 text-[22px] font-bold leading-snug hover:border-line focus:border-line-strong focus:bg-surface"
+            {/* 長い名前でもスマホで途中で切れないよう、折り返す入力欄にする（Enterでは改行せず確定）。
+                点線の下線で「書き換えられる」と分かるようにする */}
+            <textarea
+              rows={1}
+              className="block w-full resize-none rounded-[3px] border border-transparent bg-transparent px-1 py-0.5 -mx-1 text-[22px] font-bold leading-snug underline decoration-line-strong decoration-dotted decoration-1 underline-offset-[6px] [field-sizing:content] hover:border-line focus:border-line-strong focus:bg-surface focus:no-underline"
               value={title}
               maxLength={80}
               title="押すと名前を変えられます"
-              onChange={(e) => setTitle(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  e.currentTarget.blur();
+                }
+              }}
+              onChange={(e) => setTitle(e.target.value.replace(/\n/g, ""))}
               onBlur={() => title.trim() && title.trim() !== test.title && update({ ...test, title: title.trim() })}
             />
           </label>
