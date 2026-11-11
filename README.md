@@ -1,5 +1,7 @@
 # LearnCheck — 研修の理解度チェック
 
+[![CI](https://github.com/aki-appdate/learncheck/actions/workflows/ci.yml/badge.svg)](https://github.com/aki-appdate/learncheck/actions/workflows/ci.yml)
+
 研修資料から**AIが確認テストの案を作り**、研修担当が**1問ずつ確認してから公開**。受講結果から**伝わっていない所とフォロー研修の案**を出すWebアプリです。
 社内研修の「やりっぱなし（受けたかどうかしか分からない）」を減らすことを目的に、Claude Code を使って設計・実装しました。
 
