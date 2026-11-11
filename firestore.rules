@@ -1,0 +1,50 @@
+rules_version = '2';
+
+// お試しの人は匿名ログインし、自分の workspaces/{uid} の下だけを読み書きできる。
+// 他の人のデータは読めず、決められた形以外のデータは書き込めない。
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isOwner(uid) {
+      return request.auth != null && request.auth.uid == uid;
+    }
+
+    match /workspaces/{uid} {
+      allow read, delete: if isOwner(uid);
+      allow create, update: if isOwner(uid)
+        && request.resource.data.keys().hasOnly(['seedBase'])
+        && request.resource.data.seedBase is string;
+
+      // 利用者が作ったテスト（下書き・公開済み）
+      match /tests/{testId} {
+        allow read: if isOwner(uid);
+        allow create, update: if isOwner(uid)
+          && request.resource.data.id == testId
+          && request.resource.data.status in ['draft', 'published']
+          && request.resource.data.title is string
+          && request.resource.data.title.size() <= 80
+          && request.resource.data.questions is list
+          && request.resource.data.questions.size() <= 20
+          && request.resource.data.material.body is string
+          && request.resource.data.material.body.size() <= 8000
+          // 公開したテストは書き換えない（受講結果と問題がずれないように）
+          && (resource == null || resource.data.status == 'draft');
+        // 削除は「データを初期化」で使う（画面から消せるのは下書きだけ）
+        allow delete: if isOwner(uid);
+      }
+
+      // 受講結果
+      match /attempts/{attemptId} {
+        allow read, delete: if isOwner(uid);
+        allow create: if isOwner(uid)
+          && request.resource.data.id == attemptId
+          && request.resource.data.testId is string
+          && request.resource.data.learnerId is string
+          && request.resource.data.answers is list
+          && request.resource.data.answers.size() <= 20
+          && request.resource.data.at is string;
+        // 結果は後から書き換えない
+        allow update: if false;
+      }
+    }
+  }
+}
