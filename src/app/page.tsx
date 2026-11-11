@@ -3,37 +3,55 @@
 import { useRouter } from "next/navigation";
 import { useApp } from "@/components/AppProvider";
 import { Header } from "@/components/Header";
-import { btn } from "@/components/ui";
+import { MaterialExcerpt } from "@/components/MaterialExcerpt";
+import { ChoiceMark, cx, Icon, QNo, Seal } from "@/components/ui";
+import { CHOICE_MARKS } from "@/lib/quality";
 
-const FEATURES = [
+const STEPS = [
   {
-    title: "研修資料から、確認テストの案をAIが作る",
-    body: "資料を選ぶか貼り付けて、問題の数と難しさを選ぶだけ。4択の問題・正解・解説に加えて、根拠となる資料の文をAIが示します。",
+    who: "AI",
+    title: "資料から問題の案を作る",
+    body: "資料を選ぶか貼り付けて、問題の数と難しさを選ぶだけ。4択の問題・正解・解説と、根拠にした資料の文を出します。",
   },
   {
-    title: "根拠の文が資料に本当にあるかを、プログラムで確かめる",
-    body: "AIは資料にないことを作ってしまうことがあります。引用文が資料に見つからない問題は「根拠を確認できません」と目立たせ、そのままでは採用できません。",
+    who: "プログラム",
+    title: "根拠の文を資料と照らし合わせる",
+    body: "引用文が資料に一字一句あるかを確かめます。見つからない問題は「根拠を確認できません」と赤で示し、そのままでは採用できません。",
   },
   {
-    title: "人が1問ずつ確認してから公開",
-    body: "研修担当が「採用／直す／捨てる」を選び、確認が済んだ問題だけで公開します。正解の位置の偏りや、選択肢の重複も自動で知らせます。",
+    who: "研修担当",
+    title: "1問ずつ確かめて、採用する",
+    body: "「採用／直す／捨てる」を選びます。正解の位置の偏りや選択肢の重複も知らせます。確かめ終わった問題だけで公開します。",
+    human: true,
   },
   {
-    title: "受講者は、答えるとすぐ正解と資料の該当箇所が分かる",
-    body: "間違えたその場で、解説と資料のどこに書いてあったかを確かめられます。結果は研修担当の画面に反映されます。",
+    who: "受講者 → 研修担当",
+    title: "受けて、つまずきを見直す",
+    body: "受講者は答えるとすぐ、正解と資料の該当箇所が分かります。研修担当は問題・部署ごとの正答率から、フォロー研修を決めます。",
+  },
+];
+
+const PROMISES = [
+  {
+    title: "AIの出力は、すべて「案」",
+    body: "テストは研修担当が1問ずつ確認してから公開します。フォロー研修の案も参考情報として出し、最後に決めるのは人です。",
   },
   {
-    title: "どこが伝わっていないかを、問題と部署ごとに見る",
-    body: "問題ごとの正答率、よく選ばれた誤答、部署別の弱点を集計。間違いが多い問題は、教え方か問題文のどちらかに課題があるサインです。",
+    title: "根拠は、言い換えを認めない",
+    body: "同じとみなすのは空白・全角半角・かっこの形などの書き方の揺れだけ。言い換えた引用は「見つからない」と扱い、作り話を見逃しません。",
   },
   {
-    title: "フォロー研修の案を、根拠の問題つきで",
-    body: "集計結果からAIがフォローの案を出します。挙げた根拠の問題が実在するかを確かめ、根拠のない提案は表示しません。",
+    title: "返答の形を固定し、違えば使わない",
+    body: "AIには決まった形で答えさせ、受け取った値も同じ形で検証します。フォローの案で挙げた根拠の問題が実在しないときは、その気づきを捨てます。",
+  },
+  {
+    title: "AIが使えなくても止まらない",
+    body: "未設定・無料枠の上限・通信エラーのときは、資料の文からルールで問題を作る「見本の返答」に切り替えます。どちらが動いたかは画面右上に出ます。",
   },
 ];
 
 export default function Home() {
-  const { people, setMe, ready } = useApp();
+  const { people, setMe, ready, tests } = useApp();
   const router = useRouter();
   const start = (id: string, to: string) => {
     setMe(id);
@@ -41,71 +59,184 @@ export default function Home() {
   };
   const trainer = people.find((p) => p.role === "trainer");
   const learner = people.find((p) => p.role === "learner");
+  const sample = tests.find((t) => t.id === "test-security");
+  const sq = sample?.questions[0];
 
   return (
     <>
-    <Header />
-    <main className="mx-auto max-w-5xl px-4 py-12 sm:py-20">
-      <p className="text-sm font-medium text-brand">研修の理解度チェック</p>
-      <h1 className="mt-3 text-3xl font-bold leading-tight text-ink sm:text-4xl">
-        研修資料から確認テストを作り、
-        <br className="hidden sm:block" />
-        伝わっていない所を見つける。
-      </h1>
-      <p className="mt-4 max-w-2xl text-ink-soft">
-        LearnCheckは、社内研修の「やりっぱなし」を防ぐためのデモアプリです。AIが作った問題を人が確認してから公開し、受講結果から、教え直すべき所とフォロー研修の案を出します。
-      </p>
+      <Header />
+      <main>
+        {/* 冒頭：何をするアプリか＋確認画面の見本 */}
+        <section className="border-b border-line bg-surface">
+          <div className="mx-auto grid max-w-6xl gap-x-14 gap-y-10 px-4 py-12 sm:px-6 sm:py-16 lg:grid-cols-[1fr_29rem] lg:py-20">
+            <div className="min-w-0 lg:self-center">
+              <p className="label">社内研修の理解度チェック</p>
+              <h1 className="mt-3 text-[30px] font-bold leading-[1.4] tracking-tight text-ink sm:text-[40px]">
+                <span className="whitespace-nowrap">研修資料から</span>
+                <wbr />
+                <span className="whitespace-nowrap">確認テストを作り、</span>
+                <wbr />
+                <span className="whitespace-nowrap">伝わっていない所を</span>
+                <wbr />
+                <span className="whitespace-nowrap">見つける。</span>
+              </h1>
+              <p className="mt-5 max-w-xl leading-[1.9] text-ink-soft">
+                AIが作った問題には、必ず<b className="font-bold text-ink">資料の根拠</b>を添えます。研修担当が<b className="font-bold text-ink">1問ずつ確かめて採用</b>
+                した問題だけで公開し、受講結果から、教え直すべき所とフォロー研修の案を出します。
+              </p>
 
-      <div className="mt-8 flex flex-wrap gap-3">
-        <button className={btn.primary} disabled={!ready || !trainer} onClick={() => trainer && start(trainer.id, "/admin")}>
-          研修担当として試す
-        </button>
-        <button className={btn.secondary} disabled={!ready || !learner} onClick={() => learner && start(learner.id, "/learn")}>
-          受講者として試す
-        </button>
-      </div>
-      <p className="mt-3 text-xs text-ink-muted">ログインは不要です。会社・人名・研修資料などのデータはすべて架空で、いつでも初期化できます。</p>
+              <div className="mt-8 grid max-w-xl gap-px overflow-hidden rounded-[4px] border border-line-strong bg-line-strong sm:grid-cols-2">
+                <RoleButton
+                  primary
+                  disabled={!ready || !trainer}
+                  onClick={() => trainer && start(trainer.id, "/admin")}
+                  title="研修担当として試す"
+                  sub="問題の案を確かめて公開・結果を見る"
+                />
+                <RoleButton
+                  disabled={!ready || !learner}
+                  onClick={() => learner && start(learner.id, "/learn")}
+                  title="受講者として試す"
+                  sub="スマホで5分。答えるとすぐ根拠が分かる"
+                />
+              </div>
+              <p className="mt-3 text-xs leading-relaxed text-ink-muted">ログインは不要です。データはすべて架空で、いつでも初期化できます。</p>
+            </div>
 
-      <div className="mt-14 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {FEATURES.map((f) => (
-          <div key={f.title} className="rounded-xl border border-line bg-surface p-5">
-            <h2 className="font-bold text-ink">{f.title}</h2>
-            <p className="mt-2 text-sm leading-relaxed text-ink-soft">{f.body}</p>
+            {/* 見本：実際のデモデータの1問を、研修担当の確認画面と同じ見せ方で */}
+            <figure className="min-w-0" aria-label="問題の確認画面の見本">
+              <div className="relative rounded-[4px] border border-line-strong bg-surface">
+                <div className="flex items-center justify-between border-b border-line px-4 py-2.5">
+                  <span className="text-xs text-ink-muted">確認画面の見本</span>
+                  <span className="text-xs text-ink-muted">{sample?.title ?? "　"}</span>
+                </div>
+                {sq && sample ? (
+                  <div className="space-y-3 px-4 pb-4 pt-3">
+                    <div className="flex items-start gap-3">
+                      <QNo n={1} className="mt-0.5" />
+                      <p className="text-[15px] font-bold leading-relaxed">{sq.prompt}</p>
+                    </div>
+                    <ol className="grid grid-cols-2 gap-1.5">
+                      {sq.choices.map((c, i) => (
+                        <li
+                          key={i}
+                          className={cx(
+                            "flex items-center gap-2 rounded-[3px] border px-2 py-1.5 text-sm",
+                            i === sq.answerIndex ? "border-good bg-good-soft font-bold" : "border-line",
+                          )}
+                        >
+                          <ChoiceMark mark={CHOICE_MARKS[i]} tone={i === sq.answerIndex ? "good" : "plain"} />
+                          {c}
+                          {i === sq.answerIndex && <span className="sr-only">（正解）</span>}
+                        </li>
+                      ))}
+                    </ol>
+                    <Callout n={1}>AIが示した根拠の文を、資料と照らし合わせる</Callout>
+                    <MaterialExcerpt body={sample.material.body} quote={sq.quote} materialTitle={sample.material.title} showCheck />
+                    <div className="flex items-center justify-between gap-3 border-t border-line pt-3">
+                      <Callout n={2}>研修担当が確かめて「採用」を押す</Callout>
+                      <Seal />
+                    </div>
+                  </div>
+                ) : (
+                  <div className="h-80" />
+                )}
+              </div>
+            </figure>
           </div>
-        ))}
-      </div>
+        </section>
 
-      <div className="mt-14 rounded-xl border border-line bg-surface p-6">
-        <h2 className="font-bold text-ink">AIの扱いで気をつけたこと</h2>
-        <ul className="mt-3 space-y-2 text-sm leading-relaxed text-ink-soft">
-          <li>・AIの出力はすべて「案」です。テストは研修担当が1問ずつ確認してから公開し、フォロー研修の案も最終判断は人が行います。</li>
-          <li>・AIの返答は決まった形で受け取り、形が違えば使いません。問題の根拠（資料の引用文）は、資料の中に一字一句あるかをプログラムで照らし合わせます。</li>
-          <li>・AIが使えないとき（未設定・無料枠の上限・通信エラー・返答の形の不正）は、資料の文から問題を作るルールベースの「見本の返答」に自動で切り替わります。画面右上の表示で、どちらが動いたか分かります。</li>
-        </ul>
-      </div>
+        {/* 公開までの流れ：誰が何をするか */}
+        <section className="mx-auto max-w-6xl px-4 py-14 sm:px-6 sm:py-20">
+          <h2 className="text-[22px] font-bold sm:text-2xl">
+            <span className="inline-block">テストが公開されるまで、</span>
+            <span className="inline-block">誰が何をするか</span>
+          </h2>
+          <p className="mt-2 max-w-2xl text-sm leading-relaxed text-ink-soft">AIに任せるのは「案」まで。根拠の照らし合わせはプログラム、採用するかは人が決めます。</p>
+          <ol className="mt-8 grid gap-px overflow-hidden rounded-[4px] border border-line bg-line md:grid-cols-4">
+            {STEPS.map((s, i) => (
+              <li key={s.title} className={cx("p-5", s.human ? "bg-good-soft" : "bg-surface")}>
+                <div className="flex items-baseline justify-between gap-2">
+                  <span className="text-[28px] font-bold leading-none text-brand">{i + 1}</span>
+                  <span className={cx("flex items-center gap-2 text-xs font-bold", s.human ? "text-good" : "text-ink-muted")}>
+                    {s.who}
+                    {s.human && <Seal size="sm" className="-my-2" />}
+                  </span>
+                </div>
+                <h3 className="mt-4 font-bold leading-snug">{s.title}</h3>
+                <p className="mt-2 text-sm leading-[1.85] text-ink-soft">{s.body}</p>
+              </li>
+            ))}
+          </ol>
+        </section>
 
-      <div className="mt-6 rounded-xl border border-line bg-surface p-6">
-        <h2 className="font-bold text-ink">このアプリについて</h2>
-        <dl className="mt-4 grid gap-4 text-sm sm:grid-cols-2">
-          <div>
-            <dt className="font-medium text-ink">作った人</dt>
-            <dd className="mt-1 text-ink-soft">設計・仕様決め・動作確認は筆者、実装は Claude Code（AIコーディングツール）です。</dd>
+        {/* AIの扱い */}
+        <section className="border-y border-line bg-paper">
+          <div className="mx-auto grid max-w-6xl gap-x-14 gap-y-8 px-4 py-14 sm:px-6 sm:py-16 lg:grid-cols-[16rem_1fr]">
+            <div>
+              <h2 className="text-[22px] font-bold">AIの扱いで<br className="hidden lg:block" />気をつけたこと</h2>
+              <p className="mt-2 text-sm leading-relaxed text-ink-soft">研修の内容を間違って覚えさせないことを、いちばん大事にしました。</p>
+            </div>
+            <dl className="grid gap-x-10 sm:grid-cols-2">
+              {PROMISES.map((p) => (
+                <div key={p.title} className="border-t border-line-strong py-5">
+                  <dt className="flex items-start gap-2 font-bold">
+                    <Icon name="check" className="mt-1 size-4 text-brand" />
+                    {p.title}
+                  </dt>
+                  <dd className="mt-1.5 pl-6 text-sm leading-[1.85] text-ink-soft">{p.body}</dd>
+                </div>
+              ))}
+            </dl>
           </div>
-          <div>
-            <dt className="font-medium text-ink">使っている技術</dt>
-            <dd className="mt-1 text-ink-soft">Next.js / React / TypeScript / Tailwind CSS / Firebase（Firestore・匿名認証・AI Logic）/ Gemini / Vitest</dd>
-          </div>
-          <div>
-            <dt className="font-medium text-ink">料金</dt>
-            <dd className="mt-1 text-ink-soft">Firebaseの無料プランとGeminiの無料枠だけで動く構成です。課金が必要な機能は使っていません。</dd>
-          </div>
-          <div>
-            <dt className="font-medium text-ink">データの保存</dt>
-            <dd className="mt-1 text-ink-soft">お試しの人ごとに分けて保存します。デモデータは毎回同じ計算で作り直し、保存するのは利用者が作ったテストと受講結果だけです。</dd>
-          </div>
-        </dl>
-      </div>
-    </main>
+        </section>
+
+        {/* このアプリについて */}
+        <section className="mx-auto max-w-6xl px-4 py-14 sm:px-6">
+          <h2 className="text-lg font-bold">このアプリについて</h2>
+          <dl className="mt-5 grid gap-x-10 text-sm sm:grid-cols-2 lg:grid-cols-4">
+            {[
+              ["作った人", "設計・仕様決め・動作確認は筆者、実装は Claude Code（AIコーディングツール）です。"],
+              ["使っている技術", "Next.js / React / TypeScript / Tailwind CSS / Firebase（Firestore・匿名認証・AI Logic）/ Gemini / Vitest"],
+              ["料金", "Firebaseの無料プランとGeminiの無料枠だけで動く構成です。課金が必要な機能は使っていません。"],
+              ["データの保存", "お試しの人ごとに分けて保存します。デモデータは毎回同じ計算で作り直し、保存するのは利用者が作ったテストと受講結果だけです。"],
+            ].map(([k, v]) => (
+              <div key={k} className="border-t border-line py-4">
+                <dt className="label">{k}</dt>
+                <dd className="mt-1.5 leading-[1.85] text-ink-soft">{v}</dd>
+              </div>
+            ))}
+          </dl>
+        </section>
+      </main>
     </>
+  );
+}
+
+function RoleButton({ title, sub, onClick, disabled, primary }: { title: string; sub: string; onClick: () => void; disabled: boolean; primary?: boolean }) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      className={cx(
+        "group flex items-center justify-between gap-3 px-5 py-4 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-60",
+        primary ? "bg-brand text-white hover:bg-brand-strong" : "bg-surface text-ink hover:bg-canvas",
+      )}
+    >
+      <span>
+        <span className="block font-bold">{title}</span>
+        <span className={cx("mt-0.5 block text-xs leading-relaxed", primary ? "text-white/80" : "text-ink-muted")}>{sub}</span>
+      </span>
+      <Icon name="arrow-right" className="transition-transform group-hover:translate-x-0.5" />
+    </button>
+  );
+}
+
+function Callout({ n, children }: { n: number; children: React.ReactNode }) {
+  return (
+    <p className="flex items-center gap-2 text-xs font-bold text-brand-strong">
+      <span className="grid size-5 place-items-center rounded-full bg-brand text-[11px] text-white">{n}</span>
+      {children}
+    </p>
   );
 }

@@ -5,7 +5,7 @@ import { useApp } from "@/components/AppProvider";
 import { CreateTestForm } from "@/components/admin/CreateTestForm";
 import { TestEditor } from "@/components/admin/TestEditor";
 import { RoleGate } from "@/components/RoleGate";
-import { Badge, btn, Card, CardTitle, cx } from "@/components/ui";
+import { cx, Icon, PageHead, RateBar } from "@/components/ui";
 import { formatDateJa } from "@/lib/dates";
 import { findQuote } from "@/lib/quote";
 import type { Test } from "@/lib/types";
@@ -38,26 +38,27 @@ function Admin() {
   };
 
   return (
-    <div className="space-y-5">
-      <div>
-        <h1 className="text-xl font-bold">テストを作る</h1>
-        <p className="mt-1 text-sm text-ink-soft">研修資料からAIが確認テストの案を作ります。1問ずつ確認し、採用した問題だけで公開します。</p>
-      </div>
+    <div className="space-y-6">
+      <PageHead eyebrow="研修担当" title="テストを作る">
+        研修資料からAIが確認テストの案を作ります。根拠の文を資料と照らし合わせ、1問ずつ確かめて採用した問題だけで公開します。
+      </PageHead>
 
-      <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-[18rem_1fr]">
-        <Card>
-          <CardTitle>テストの一覧</CardTitle>
-          <div className="p-2">
-            <button
-              className={cx(btn.primary, "w-full", sel.kind === "new" && "ring-2 ring-brand-soft")}
-              onClick={() => select({ kind: "new" })}
-            >
-              ＋ 新しいテストを作る
-            </button>
-            <TestGroup title="確認中の下書き" tests={drafts} sel={sel} onSelect={(id) => select({ kind: "test", id })} />
-            <TestGroup title="公開中" tests={published} sel={sel} onSelect={(id) => select({ kind: "test", id })} />
-          </div>
-        </Card>
+      <div className="grid grid-cols-1 items-start gap-x-8 gap-y-6 lg:grid-cols-[17rem_1fr]">
+        <nav aria-label="テストの一覧" className="lg:sticky lg:top-24">
+          <button
+            className={cx(
+              "flex w-full items-center gap-2 rounded-[3px] border px-3 py-2.5 text-left text-sm font-bold",
+              sel.kind === "new" ? "border-brand bg-brand text-white" : "border-line-strong bg-surface text-brand hover:border-brand",
+            )}
+            onClick={() => select({ kind: "new" })}
+            aria-current={sel.kind === "new"}
+          >
+            <Icon name="plus" />
+            新しいテストを作る
+          </button>
+          <TestGroup title="確認中の下書き" tests={drafts} sel={sel} onSelect={(id) => select({ kind: "test", id })} />
+          <TestGroup title="公開中" tests={published} sel={sel} onSelect={(id) => select({ kind: "test", id })} />
+        </nav>
 
         <div className="min-w-0 scroll-mt-4" ref={editorRef}>
           {current ? (
@@ -74,32 +75,51 @@ function Admin() {
 function TestGroup({ title, tests, sel, onSelect }: { title: string; tests: Test[]; sel: Selection; onSelect: (id: string) => void }) {
   if (!tests.length) return null;
   return (
-    <div className="mt-3">
-      <p className="px-2 pb-1 text-xs font-medium text-ink-muted">{title}</p>
-      <ul className="space-y-1">
+    <div className="mt-6">
+      <p className="label border-b border-line pb-1.5">
+        {title}
+        <span className="ml-1.5 font-normal">{tests.length}</span>
+      </p>
+      <ul>
         {tests.map((t) => {
           const pending = t.questions.filter((q) => q.review === "pending").length;
+          const approved = t.questions.filter((q) => q.review === "approved").length;
           const noEvidence = t.questions.filter((q) => q.review !== "discarded" && !findQuote(t.material.body, q.quote).found).length;
           const active = sel.kind === "test" && sel.id === t.id;
           return (
-            <li key={t.id}>
+            <li key={t.id} className="border-b border-line">
               <button
-                className={cx("w-full rounded-lg px-2.5 py-2 text-left text-sm", active ? "bg-brand-soft" : "hover:bg-canvas")}
+                className={cx(
+                  "w-full border-l-[3px] py-2.5 pl-3 pr-2 text-left text-sm",
+                  active ? "border-brand bg-surface" : "border-transparent hover:bg-surface",
+                )}
                 onClick={() => onSelect(t.id)}
                 aria-current={active}
               >
-                <span className="block font-medium">{t.title}</span>
-                <span className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-ink-muted">
-                  {t.questions.length}問
-                  {t.status === "draft" ? (
-                    <>
-                      {pending > 0 && <Badge tone="brand">未確認 {pending}</Badge>}
-                      {noEvidence > 0 && <Badge tone="bad">根拠なし {noEvidence}</Badge>}
-                    </>
-                  ) : (
-                    t.publishedAt && <span>・{formatDateJa(t.publishedAt)} 公開</span>
-                  )}
-                </span>
+                <span className={cx("block leading-snug", active ? "font-bold text-ink" : "text-ink")}>{t.title}</span>
+                {t.status === "draft" ? (
+                  <>
+                    <span className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink-muted">
+                      <span>
+                        採用 {approved}/{t.questions.length}
+                      </span>
+                      {pending > 0 && <span>未確認 {pending}</span>}
+                      {noEvidence > 0 && (
+                        <span className="inline-flex items-center gap-0.5 font-bold text-bad">
+                          <Icon name="alert" className="size-3.5" />
+                          根拠なし {noEvidence}
+                        </span>
+                      )}
+                    </span>
+                    <span className="mt-1.5 block">
+                      <RateBar value={t.questions.length ? approved / t.questions.length : 0} tone="good" thin />
+                    </span>
+                  </>
+                ) : (
+                  <span className="mt-1 block text-xs text-ink-muted">
+                    {t.questions.length}問{t.publishedAt && `・${formatDateJa(t.publishedAt)} 公開`}
+                  </span>
+                )}
               </button>
             </li>
           );

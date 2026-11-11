@@ -1,36 +1,111 @@
 @import "tailwindcss";
 
-/* 色はここで決めた名前だけを使う。画面ごとに色を足さない。 */
+/* 色はここで決めた名前だけを使う。画面ごとに色を足さない。
+   方針は docs/design.md（教科書の「余白」と「検印」。深緑が主役、根拠は若草の印） */
 @theme {
-  --color-ink: #1c2430;
-  --color-ink-soft: #4a5565;
-  --color-ink-muted: #7b8594;
-  --color-line: #e3e7ee;
+  --color-ink: #17221d;
+  --color-ink-soft: #435049;
+  --color-ink-muted: #66716a;
+  --color-line: #dde2db;
+  --color-line-strong: #b9c2b8;
   --color-surface: #ffffff;
-  --color-canvas: #f5f7fa;
-  --color-brand: #1f5fbf;
-  --color-brand-strong: #174a96;
-  --color-brand-soft: #e8f0fc;
-  --color-good: #16794c;
-  --color-good-soft: #e5f5ec;
-  --color-warn: #a35a00;
-  --color-warn-soft: #fff3df;
-  --color-bad: #b42318;
-  --color-bad-soft: #fdecea;
-  --font-sans: var(--font-noto), "Hiragino Sans", "Yu Gothic", sans-serif;
+  --color-canvas: #f7f8f5;
+  --color-paper: #eff3ea;
+  --color-evidence: #d8ebc9;
+  --color-brand: #1d5c48;
+  --color-brand-strong: #123f31;
+  --color-brand-soft: #e3eee7;
+  --color-good: #1d7146;
+  --color-good-soft: #e2f1e7;
+  --color-warn: #8f5300;
+  --color-warn-soft: #fbefd9;
+  --color-bad: #b3261e;
+  --color-bad-soft: #fbe9e7;
+  --color-chart-rest: #a9b2aa;
+
+  --font-sans: var(--font-ud), "Hiragino Sans", "Yu Gothic", sans-serif;
+  --font-num: var(--font-ud-mono), var(--font-ud), "Hiragino Sans", monospace;
+
+  --radius-sheet: 4px;
 }
 
 html {
   background: var(--color-canvas);
   color: var(--color-ink);
+  -webkit-text-size-adjust: 100%;
 }
 
 body {
   font-family: var(--font-sans);
+  font-size: 15px;
+  line-height: 1.7;
   -webkit-font-smoothing: antialiased;
+  line-break: strict;
+  overflow-wrap: anywhere;
+  word-break: normal;
+}
+
+h1,
+h2,
+h3 {
+  line-height: 1.45;
+  text-wrap: balance;
+}
+
+p {
+  text-wrap: pretty;
 }
 
 :focus-visible {
   outline: 2px solid var(--color-brand);
   outline-offset: 2px;
+  border-radius: 2px;
+}
+
+::selection {
+  background: var(--color-evidence);
+  color: var(--color-ink);
+}
+
+/* 数字の列（表・目盛り）だけ等幅にする。大きな数字には使わない */
+.num {
+  font-family: var(--font-num);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 小さな見出しラベル（字間を少し広げる） */
+.label {
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  color: var(--color-ink-muted);
+  font-weight: 700;
+}
+
+/* 根拠の引用に引く印：若草の地＋深緑の下線 */
+.evidence {
+  background: var(--color-evidence);
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+  text-decoration: underline;
+  text-decoration-color: var(--color-brand);
+  text-decoration-thickness: 1.5px;
+  text-underline-offset: 4px;
+  padding: 0 2px;
+  color: var(--color-ink);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .seal-in {
+    animation: seal-in 260ms cubic-bezier(0.2, 0.9, 0.3, 1.2);
+  }
+}
+@keyframes seal-in {
+  from {
+    transform: scale(1.35) rotate(-8deg);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1) rotate(-8deg);
+    opacity: 1;
+  }
 }

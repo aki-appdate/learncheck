@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useApp } from "../AppProvider";
 import { MaterialFull } from "../MaterialExcerpt";
-import { btn, Card, CardTitle, cx, Modal } from "../ui";
+import { btn, Card, cx, Icon, Modal } from "../ui";
 import { generateQuiz } from "@/lib/ai";
 import { newId } from "@/lib/dates";
 import { DIFFICULTY_LABEL, DIFFICULTY_ORDER, QUESTION_COUNTS } from "@/lib/labels";
@@ -65,117 +65,129 @@ export function CreateTestForm({ onCreated }: { onCreated: (id: string) => void 
     }
   }
 
+  const segBtn = (on: boolean) =>
+    cx(
+      "min-h-11 flex-1 rounded-[3px] border px-3 py-2 text-sm",
+      on ? "border-ink bg-ink font-bold text-white" : "border-line-strong bg-surface text-ink hover:border-ink-soft",
+    );
+
   return (
     <Card>
-      <CardTitle>新しい確認テストを作る</CardTitle>
-      <div className="space-y-5 px-5 py-4">
-        <fieldset disabled={busy}>
-          <legend className="text-xs font-medium text-ink-soft">1. 研修資料を選ぶ</legend>
-          <div className="mt-2 grid gap-2 sm:grid-cols-2">
-            {materials.map((m) => (
-              <label
-                key={m.id}
-                className={cx(
-                  "flex cursor-pointer gap-2.5 rounded-lg border p-3 text-sm",
-                  materialId === m.id ? "border-brand bg-brand-soft" : "border-line hover:bg-canvas",
-                )}
-              >
-                <input type="radio" name="material" className="mt-1 accent-brand" checked={materialId === m.id} onChange={() => setMaterialId(m.id)} />
-                <span className="min-w-0">
-                  <span className="block font-medium">{m.title}</span>
+      <div className="border-b border-line px-5 py-4 sm:px-6">
+        <h2 className="text-xl font-bold">新しい確認テストを作る</h2>
+        <p className="mt-1 text-sm text-ink-soft">3つを選ぶと、AIが問題の案を作ります。案はすぐには公開されません。</p>
+      </div>
+      <div className="divide-y divide-line">
+        <Step n={1} title="研修資料を選ぶ">
+          <fieldset disabled={busy}>
+            <legend className="sr-only">研修資料</legend>
+            <div className="divide-y divide-line rounded-[3px] border border-line">
+              {materials.map((m) => {
+                const on = materialId === m.id;
+                return (
+                  <label key={m.id} className={cx("flex cursor-pointer gap-3 px-3.5 py-3 text-sm", on ? "bg-brand-soft" : "hover:bg-canvas")}>
+                    <input type="radio" name="material" className="mt-1 size-4 accent-brand" checked={on} onChange={() => setMaterialId(m.id)} />
+                    <span className="flex min-w-0 flex-1 flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+                      <span className="min-w-0">
+                        <span className={cx("block", on && "font-bold")}>{m.title}</span>
+                        <span className="block text-xs text-ink-muted">
+                          対象：{m.audience}・{m.body.length.toLocaleString()}字
+                        </span>
+                      </span>
+                      <button
+                        type="button"
+                        className="inline-flex items-center gap-1 text-xs font-bold text-brand underline decoration-1 underline-offset-4"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          setPreview(m.id);
+                        }}
+                      >
+                        <Icon name="doc" className="size-3.5" />
+                        資料を読む
+                      </button>
+                    </span>
+                  </label>
+                );
+              })}
+              <label className={cx("flex cursor-pointer gap-3 px-3.5 py-3 text-sm", isPaste ? "bg-brand-soft" : "hover:bg-canvas")}>
+                <input type="radio" name="material" className="mt-1 size-4 accent-brand" checked={isPaste} onChange={() => setMaterialId(PASTE)} />
+                <span>
+                  <span className={cx("block", isPaste && "font-bold")}>自分の資料を貼り付ける</span>
                   <span className="block text-xs text-ink-muted">
-                    対象：{m.audience}・{m.body.length.toLocaleString()}字
+                    社内の研修資料の文章をそのまま貼り付けて試せます（{MIN_BODY}〜{MAX_BODY.toLocaleString()}字）
                   </span>
-                  <button
-                    type="button"
-                    className="mt-0.5 text-xs text-brand underline"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      setPreview(m.id);
-                    }}
-                  >
-                    資料を読む
-                  </button>
                 </span>
               </label>
-            ))}
-            <label
-              className={cx(
-                "flex cursor-pointer gap-2.5 rounded-lg border p-3 text-sm sm:col-span-2",
-                isPaste ? "border-brand bg-brand-soft" : "border-line hover:bg-canvas",
-              )}
-            >
-              <input type="radio" name="material" className="mt-1 accent-brand" checked={isPaste} onChange={() => setMaterialId(PASTE)} />
-              <span>
-                <span className="block font-medium">自分の資料を貼り付ける</span>
-                <span className="block text-xs text-ink-muted">社内の研修資料の文章をそのまま貼り付けて試せます（{MIN_BODY}〜{MAX_BODY.toLocaleString()}字）</span>
-              </span>
-            </label>
-          </div>
-          {isPaste && (
-            <div className="mt-3 space-y-2">
-              <input
-                className="w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm"
-                placeholder="資料の名前（例：電話応対の基本）"
-                value={pasteTitle}
-                maxLength={60}
-                onChange={(e) => setPasteTitle(e.target.value)}
-              />
-              <textarea
-                className="h-48 w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm leading-relaxed"
-                placeholder="ここに資料の本文を貼り付けてください"
-                value={pasteBody}
-                onChange={(e) => setPasteBody(e.target.value)}
-              />
-              <p className={cx("text-right text-xs", bodyLen > MAX_BODY || (bodyLen > 0 && bodyLen < MIN_BODY) ? "text-bad" : "text-ink-muted")}>
-                {bodyLen.toLocaleString()}字{bodyLen > MAX_BODY ? `（${MAX_BODY.toLocaleString()}字までにしてください）` : bodyLen > 0 && bodyLen < MIN_BODY ? `（${MIN_BODY}字以上必要です）` : ""}
-              </p>
             </div>
-          )}
-        </fieldset>
+            {isPaste && (
+              <div className="mt-3 space-y-2">
+                <label className="block">
+                  <span className="label">資料の名前</span>
+                  <input
+                    className="mt-1 w-full rounded-[3px] border border-line-strong bg-surface px-3 py-2 text-sm"
+                    placeholder="例：電話応対の基本"
+                    value={pasteTitle}
+                    maxLength={60}
+                    onChange={(e) => setPasteTitle(e.target.value)}
+                  />
+                </label>
+                <label className="block">
+                  <span className="label">資料の本文</span>
+                  <textarea
+                    className="mt-1 h-48 w-full rounded-[3px] border border-line-strong bg-paper px-3 py-2 text-sm leading-relaxed"
+                    placeholder="ここに資料の本文を貼り付けてください"
+                    value={pasteBody}
+                    onChange={(e) => setPasteBody(e.target.value)}
+                  />
+                </label>
+                <p className={cx("text-right text-xs", bodyLen > MAX_BODY || (bodyLen > 0 && bodyLen < MIN_BODY) ? "font-bold text-bad" : "text-ink-muted")}>
+                  <span className="tabular-nums">{bodyLen.toLocaleString()}</span>字
+                  {bodyLen > MAX_BODY ? `（${MAX_BODY.toLocaleString()}字までにしてください）` : bodyLen > 0 && bodyLen < MIN_BODY ? `（あと${MIN_BODY - bodyLen}字以上必要です）` : ""}
+                </p>
+              </div>
+            )}
+          </fieldset>
+        </Step>
 
-        <div className="grid gap-5 sm:grid-cols-2">
-          <fieldset disabled={busy}>
-            <legend className="text-xs font-medium text-ink-soft">2. 問題の数</legend>
-            <div className="mt-2 flex gap-2">
+        <div className="grid sm:grid-cols-2 sm:divide-x sm:divide-line">
+          <Step n={2} title="問題の数">
+            <fieldset disabled={busy} className="flex gap-2">
+              <legend className="sr-only">問題の数</legend>
               {QUESTION_COUNTS.map((n) => (
-                <button
-                  key={n}
-                  type="button"
-                  aria-pressed={count === n}
-                  onClick={() => setCount(n)}
-                  className={cx("flex-1 rounded-lg border px-3 py-2 text-sm", count === n ? "border-brand bg-brand-soft font-medium text-brand-strong" : "border-line hover:bg-canvas")}
-                >
+                <button key={n} type="button" aria-pressed={count === n} onClick={() => setCount(n)} className={segBtn(count === n)}>
                   {n}問
                 </button>
               ))}
-            </div>
-          </fieldset>
-          <fieldset disabled={busy}>
-            <legend className="text-xs font-medium text-ink-soft">3. 難しさ</legend>
-            <div className="mt-2 flex gap-2">
+            </fieldset>
+          </Step>
+          <Step n={3} title="難しさ" className="border-t border-line sm:border-t-0">
+            <fieldset disabled={busy} className="flex gap-2">
+              <legend className="sr-only">難しさ</legend>
               {DIFFICULTY_ORDER.map((d) => (
-                <button
-                  key={d}
-                  type="button"
-                  aria-pressed={difficulty === d}
-                  onClick={() => setDifficulty(d)}
-                  className={cx("flex-1 rounded-lg border px-2 py-2 text-sm", difficulty === d ? "border-brand bg-brand-soft font-medium text-brand-strong" : "border-line hover:bg-canvas")}
-                >
+                <button key={d} type="button" aria-pressed={difficulty === d} onClick={() => setDifficulty(d)} className={segBtn(difficulty === d)}>
                   {DIFFICULTY_LABEL[d]}
                 </button>
               ))}
-            </div>
-          </fieldset>
+            </fieldset>
+          </Step>
         </div>
 
-        <div className="flex flex-wrap items-center gap-3 border-t border-line pt-4">
-          <button className={btn.primary} onClick={run} disabled={!canRun}>
-            {busy ? "問題を作っています…" : "✦ AIで確認テストを作る"}
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 bg-canvas px-5 py-4 sm:px-6">
+          <button className={cx(btn.primary, "w-full sm:w-auto sm:min-w-56")} onClick={run} disabled={!canRun} aria-busy={busy}>
+            {busy ? "問題の案を作っています…" : "AIで確認テストを作る"}
           </button>
-          <p className="text-xs text-ink-muted">作った問題はすぐには公開されません。次の画面で1問ずつ確認してから公開します。</p>
+          <p className="text-xs leading-relaxed text-ink-muted">
+            {!busy && !canRun && isPaste
+              ? "資料の名前と、200字以上の本文を入れると作れます。"
+              : "次の画面で、根拠の文と問題を1問ずつ確かめてから公開します。"}
+          </p>
         </div>
-        {error && <p className="rounded-lg bg-bad-soft p-3 text-sm text-bad">{error}</p>}
+        {error && (
+          <p className="flex gap-2 border-l-4 border-bad bg-bad-soft px-5 py-3 text-sm text-bad" role="alert">
+            <Icon name="alert" className="mt-0.5" />
+            {error}
+          </p>
+        )}
       </div>
 
       {preview && (
@@ -187,5 +199,17 @@ export function CreateTestForm({ onCreated }: { onCreated: (id: string) => void 
         </Modal>
       )}
     </Card>
+  );
+}
+
+function Step({ n, title, children, className }: { n: number; title: string; children: React.ReactNode; className?: string }) {
+  return (
+    <div className={cx("px-5 py-5 sm:px-6", className)}>
+      <h3 className="mb-3 flex items-baseline gap-2.5 font-bold">
+        <span className="text-xl leading-none text-brand">{n}</span>
+        {title}
+      </h3>
+      {children}
+    </div>
   );
 }

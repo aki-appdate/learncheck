@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useState } from "react";
 import { useApp } from "./AppProvider";
-import { AiSourceBadge, btn, cx } from "./ui";
+import { AiSourceBadge, cx, Icon, LogoMark } from "./ui";
 
 export function Header() {
   const { people, me, setMe, aiSource, storeKind, resetDemo } = useApp();
@@ -24,32 +24,53 @@ export function Header() {
   const learners = people.filter((p) => p.role === "learner");
 
   return (
-    <header className="top-0 z-20 border-b sm:sticky border-line bg-surface/95 backdrop-blur">
-      <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-x-6 gap-y-2 px-4 py-2.5">
-        <Link href="/" className="flex items-center gap-2 font-bold text-ink">
-          <span className="grid size-7 place-items-center rounded-lg bg-brand text-sm text-white">L</span>
-          LearnCheck
+    <header className="top-0 z-20 border-b border-line bg-surface lg:sticky">
+      <div className="mx-auto grid max-w-7xl grid-cols-[1fr_auto] items-center gap-x-6 px-4 lg:flex lg:h-14 lg:px-6">
+        <Link href="/" className="flex h-12 items-center gap-2.5 text-ink lg:h-auto" aria-label="LearnCheck トップへ">
+          <LogoMark />
+          <span className="whitespace-nowrap text-[17px] font-bold tracking-wide">LearnCheck</span>
+          <span className="hidden whitespace-nowrap border-l border-line pl-2.5 text-xs text-ink-muted xl:inline">研修の理解度チェック</span>
         </Link>
-        <nav className="flex gap-1">
-          {nav.map((n) => (
-            <Link
-              key={n.href}
-              href={n.href}
-              className={cx(
-                "rounded-md px-3 py-1.5 text-sm",
-                path.startsWith(n.href) ? "bg-brand-soft font-medium text-brand-strong" : "text-ink-soft hover:bg-canvas",
-              )}
-            >
-              {n.label}
-            </Link>
-          ))}
+
+        <button
+          className="justify-self-end whitespace-nowrap text-xs text-ink-muted underline-offset-4 hover:text-ink hover:underline disabled:opacity-50 lg:order-last"
+          disabled={resetting}
+          title={storeKind === "firestore" ? "あなた専用のお試しデータを初期状態に戻します" : "このブラウザのお試しデータを初期状態に戻します"}
+          onClick={async () => {
+            if (!confirm("作ったテストや受講結果を消して、お試しデータを最初の状態に戻しますか？")) return;
+            setResetting(true);
+            await resetDemo();
+            setResetting(false);
+          }}
+        >
+          {resetting ? "戻しています…" : "データを初期化"}
+        </button>
+
+        <nav className="col-span-2 -mx-4 flex border-t border-line px-4 lg:mx-0 lg:h-full lg:border-0 lg:px-0" aria-label="画面の切り替え">
+          {nav.map((n) => {
+            const active = path.startsWith(n.href);
+            return (
+              <Link
+                key={n.href}
+                href={n.href}
+                aria-current={active ? "page" : undefined}
+                className={cx(
+                  "flex h-11 flex-1 items-center justify-center border-b-2 px-4 text-sm lg:h-full lg:flex-none",
+                  active ? "border-brand font-bold text-brand-strong" : "border-transparent text-ink-soft hover:text-ink",
+                )}
+              >
+                {n.label}
+              </Link>
+            );
+          })}
         </nav>
-        <div className="ml-auto flex flex-wrap items-center gap-2">
-          <AiSourceBadge source={aiSource} />
-          <label className="flex items-center gap-1.5 text-xs text-ink-muted">
-            利用者
+
+        <div className="col-span-2 -mx-4 flex items-center gap-3 border-t border-line bg-canvas px-4 py-2 lg:mx-0 lg:ml-auto lg:border-0 lg:bg-transparent lg:p-0">
+          <label className="flex min-w-0 flex-1 items-center gap-2 text-xs text-ink-muted lg:flex-none">
+            <Icon name="user" className="size-4" />
+            <span className="sr-only">利用者を切り替える</span>
             <select
-              className="max-w-[13rem] rounded-md border border-line bg-surface px-2 py-1 text-sm text-ink"
+              className="min-w-0 flex-1 rounded-[3px] border border-line-strong bg-surface py-1 pl-2 pr-7 text-sm text-ink lg:max-w-[15rem]"
               value={me?.id ?? ""}
               onChange={(e) => {
                 const next = people.find((p) => p.id === e.target.value);
@@ -73,24 +94,12 @@ export function Header() {
               </optgroup>
             </select>
           </label>
-          <button
-            className={btn.ghost}
-            disabled={resetting}
-            title={storeKind === "firestore" ? "あなた専用のお試しデータを初期状態に戻します" : "このブラウザのお試しデータを初期状態に戻します"}
-            onClick={async () => {
-              if (!confirm("作ったテストや受講結果を消して、お試しデータを最初の状態に戻しますか？")) return;
-              setResetting(true);
-              await resetDemo();
-              setResetting(false);
-            }}
-          >
-            {resetting ? "戻しています…" : "データを初期化"}
-          </button>
+          <AiSourceBadge source={aiSource} />
         </div>
       </div>
-      <div className="border-t border-line bg-warn-soft/60 px-4 py-1 text-center text-xs text-warn">
-        デモ版です。会社・人名・部署・研修資料などのデータはすべて架空のものです。
-      </div>
+      <p className="border-t border-line bg-paper px-4 py-1 text-center text-[11.5px] leading-5 text-ink-soft">
+        デモ版です。会社・人名・部署・研修資料などのデータはすべて架空です。
+      </p>
     </header>
   );
 }

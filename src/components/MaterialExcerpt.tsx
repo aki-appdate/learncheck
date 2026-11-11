@@ -2,31 +2,61 @@
 
 import { useState } from "react";
 import { excerptAround, findQuote } from "@/lib/quote";
-import { btn, Modal } from "./ui";
+import { btn, cx, Icon, Modal } from "./ui";
 
-/** 引用文を資料の中で探し、前後の文とあわせて印をつけて見せる。見つからなければ赤で知らせる */
-export function MaterialExcerpt({ body, quote, materialTitle }: { body: string; quote: string; materialTitle: string }) {
+/** 引用文を資料の中で探し、前後の文とあわせて印をつけて見せる。見つからなければ赤で知らせる。
+ *  showCheck を付けると「資料と一致」の確認結果も見出しに出す（研修担当の画面向け） */
+export function MaterialExcerpt({
+  body,
+  quote,
+  materialTitle,
+  showCheck,
+  className,
+}: {
+  body: string;
+  quote: string;
+  materialTitle: string;
+  showCheck?: boolean;
+  className?: string;
+}) {
   const [full, setFull] = useState(false);
   const match = findQuote(body, quote);
 
   if (!match.found) {
     return (
-      <div className="rounded-lg border border-bad bg-bad-soft p-3 text-sm">
-        <p className="font-bold text-bad">⚠ この引用文は資料の中に見つかりません</p>
-        <p className="mt-1 whitespace-pre-wrap text-ink-soft">「{quote || "（空）"}」</p>
+      <div className={cx("border-l-[3px] border-bad bg-bad-soft px-4 py-3 text-sm", className)} role="alert">
+        <p className="flex items-center gap-1.5 font-bold text-bad">
+          <Icon name="alert" className="size-4" />
+          この引用文は資料の中に見つかりません
+        </p>
+        <p className="mt-1.5 whitespace-pre-wrap leading-relaxed text-ink-soft">「{quote || "（空）"}」</p>
+        <p className="mt-1.5 text-xs text-bad">資料にないことをAIが作った可能性があります。</p>
       </div>
     );
   }
   const ex = excerptAround(body, match.start, match.end);
   return (
-    <div className="rounded-lg border border-line bg-canvas p-3 text-sm leading-relaxed">
-      <p className="text-ink-soft">
+    <figure className={cx("border-l-[3px] border-brand bg-paper px-4 pb-3 pt-2.5 text-sm", className)}>
+      <figcaption className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        <span className="flex min-w-0 items-center gap-1.5 text-xs font-bold text-brand-strong">
+          <Icon name="doc" className="size-4" />
+          <span className="truncate">資料「{materialTitle}」</span>
+        </span>
+        <Where start={match.start} end={match.end} length={body.length} />
+        {showCheck && (
+          <span className="ml-auto inline-flex items-center gap-1 text-xs font-bold text-good">
+            <Icon name="check" className="size-4" />
+            資料と一致
+          </span>
+        )}
+      </figcaption>
+      <blockquote className="mt-2 leading-[1.9] text-ink-soft">
         {ex.before}
-        <mark className="rounded bg-warn-soft px-0.5 font-medium text-ink">{ex.hit}</mark>
+        <mark className="evidence">{ex.hit}</mark>
         {ex.after}
-      </p>
-      <button className="mt-1.5 text-xs text-brand underline" onClick={() => setFull(true)}>
-        資料「{materialTitle}」の全文で見る
+      </blockquote>
+      <button className="mt-2 text-xs font-bold text-brand underline decoration-1 underline-offset-4 hover:text-brand-strong" onClick={() => setFull(true)}>
+        資料の全文で位置を確かめる
       </button>
       {full && (
         <Modal title={`資料：${materialTitle}`} onClose={() => setFull(false)} wide>
@@ -36,18 +66,35 @@ export function MaterialExcerpt({ body, quote, materialTitle }: { body: string; 
           </button>
         </Modal>
       )}
-    </div>
+    </figure>
+  );
+}
+
+/** 資料全体のどのあたりの文かを示す目盛り */
+function Where({ start, end, length }: { start: number; end: number; length: number }) {
+  const a = length ? start / length : 0;
+  const b = length ? Math.max(end / length, a + 0.02) : 0;
+  const pos = (a + b) / 2;
+  const word = pos < 0.34 ? "はじめ" : pos < 0.67 ? "なかほど" : "おわり";
+  return (
+    <span className="flex items-center gap-1.5 text-[11px] text-ink-muted" title={`資料の${word}の文です`}>
+      <span className="relative h-1.5 w-16 rounded-full bg-line" aria-hidden>
+        <span className="absolute inset-y-0 rounded-full bg-brand" style={{ left: `${a * 100}%`, width: `${(b - a) * 100}%` }} />
+      </span>
+      資料の{word}
+    </span>
   );
 }
 
 /** 資料の全文。highlight があればその部分に印をつける */
 export function MaterialFull({ body, highlight }: { body: string; highlight?: { start: number; end: number } }) {
-  if (!highlight) return <p className="whitespace-pre-wrap text-sm leading-relaxed text-ink-soft">{body}</p>;
+  const cls = "whitespace-pre-wrap border-l-[3px] border-line bg-paper px-4 py-3 text-sm leading-[1.9] text-ink-soft";
+  if (!highlight) return <p className={cls}>{body}</p>;
   return (
-    <p className="whitespace-pre-wrap text-sm leading-relaxed text-ink-soft">
+    <p className={cls}>
       {body.slice(0, highlight.start)}
       <mark
-        className="rounded bg-warn-soft px-0.5 font-medium text-ink"
+        className="evidence font-bold"
         ref={(el) => {
           el?.scrollIntoView({ block: "center" });
         }}
