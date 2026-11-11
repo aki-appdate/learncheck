@@ -8,7 +8,7 @@ import { FollowUpPanel } from "@/components/results/FollowUpPanel";
 import { QuestionDetail } from "@/components/results/QuestionDetail";
 import { cx, Icon, PageHead, QNo, RateBar } from "@/components/ui";
 import { computeTestStats, DEPT_MIN_LEARNERS, LOW_RATE, MIN_LEARNERS, needsFollowUp, pct } from "@/lib/analytics";
-import { formatDateJa } from "@/lib/dates";
+import { formatDateJa, formatDateTimeJa } from "@/lib/dates";
 import { CHOICE_MARKS } from "@/lib/quality";
 
 export default function ResultsPage() {
@@ -26,9 +26,9 @@ function Results() {
   const { tests, attempts, people } = useApp();
   const published = useMemo(() => tests.filter((t) => t.status === "published").reverse(), [tests]);
   // 「このテストの結果を見る」（公開済みテストの画面）から来たときは、URLのテストを開く
-  const fromUrl = useSearchParams().get("test");
-  const [picked, setTestId] = useState<string | null>(null);
-  const testId = picked ?? fromUrl;
+  // 開くテストはURLだけで決める（選び直したときもURLを書き換える）。画面の状態に別に持つと、
+  // 前に選んだテストが残ってURLと違う結果が出ることがあるため
+  const testId = useSearchParams().get("test");
   const [openQ, setOpenQ] = useState<string | null>(null);
   const test = published.find((t) => t.id === testId) ?? published[0];
 
@@ -64,17 +64,16 @@ function Results() {
               className="w-full rounded-[3px] border border-line-strong bg-surface py-2 pl-3 pr-8 text-sm font-bold sm:w-[27rem]"
               value={test.id}
               onChange={(e) => {
-                setTestId(e.target.value);
                 setOpenQ(null);
-                // 再読み込みや共有のときも同じテストが開くように、選んだテストをURLに残す
+                // 再読み込みや共有のときも同じテストが開くように、選んだテストをURLに残す（useSearchParams も追従する）
                 window.history.replaceState(null, "", `?test=${encodeURIComponent(e.target.value)}`);
               }}
             >
               {published.map((t) => (
                 <option key={t.id} value={t.id}>
-                  {/* 同じ資料から作ったテストは名前が同じになるので、公開日を添えて見分ける */}
+                  {/* 同じ資料から作ったテストは名前が同じになるので、公開した日時を前に置いて見分ける（スマホで後ろが切れても見える） */}
+                  {t.publishedAt ? `${formatDateTimeJa(t.publishedAt)} 公開・` : ""}
                   {t.title}
-                  {t.publishedAt ? `・${formatDateJa(t.publishedAt)} 公開` : ""}
                 </option>
               ))}
             </select>

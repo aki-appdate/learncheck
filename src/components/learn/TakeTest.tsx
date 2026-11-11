@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useApp } from "../AppProvider";
 import { MaterialExcerpt } from "../MaterialExcerpt";
-import { btn, ChoiceMark, cx, Icon, QNo } from "../ui";
+import { btn, ChoiceMark, cx, Icon, QNo, useConfirm } from "../ui";
 import { scoreAttempt } from "@/lib/analytics";
 import { newId } from "@/lib/dates";
 import { CHOICE_MARKS } from "@/lib/quality";
@@ -13,6 +13,7 @@ import type { Attempt, Test } from "@/lib/types";
 export function TakeTest({ test, onExit }: { test: Test; onExit: () => void }) {
   const { me, saveAttempt } = useApp();
   const [index, setIndex] = useState(0);
+  const [ask, confirmDialog] = useConfirm();
   const [picked, setPicked] = useState<number | null>(null);
   const [revealed, setRevealed] = useState(false);
   const [answers, setAnswers] = useState<Attempt["answers"]>([]);
@@ -87,8 +88,12 @@ export function TakeTest({ test, onExit }: { test: Test; onExit: () => void }) {
 
   return (
     <div className="mx-auto max-w-2xl">
+      {confirmDialog}
       <div className="flex items-center justify-between gap-3">
-        <button className={btn.ghost} onClick={() => confirm("途中でやめると、ここまでの回答は保存されません。やめますか？") && onExit()}>
+        <button className={btn.ghost} onClick={async () => {
+            // 1問も答えていなければ、失うものがないので確認しない
+            if (answers.length === 0 || (await ask("途中でやめると、ここまでの回答は保存されません。", { title: "受講をやめますか？", ok: "やめる", danger: true }))) onExit();
+          }}>
           <Icon name="arrow-left" className="size-4" />
           やめる
         </button>

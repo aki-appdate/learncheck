@@ -46,6 +46,17 @@ describe("createSeedData（デモデータ）", () => {
     }
   });
 
+  it("公開済みテストの正解は A〜D に散らばっている（どの記号も1問以上・全体の3割まで）", () => {
+    const d = createSeedData(NOW);
+    for (const t of d.tests.filter((x) => x.status === "published")) {
+      const count = [0, 1, 2, 3].map((c) => t.questions.filter((q) => q.answerIndex === c).length);
+      for (const n of count) {
+        expect(n, `${t.id}: ${count.join(",")}`).toBeGreaterThanOrEqual(1);
+        expect(n / t.questions.length, `${t.id}: ${count.join(",")}`).toBeLessThanOrEqual(0.3);
+      }
+    }
+  });
+
   it("下書きの例には、根拠が資料にない問題がちょうど1問ある", () => {
     const draft = createSeedData(NOW).tests.find((t) => t.status === "draft")!;
     expect(draft.questions.filter((q) => !findQuote(draft.material.body, q.quote).found)).toHaveLength(1);

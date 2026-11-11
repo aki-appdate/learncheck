@@ -224,16 +224,19 @@ function QuestionEditor({
               <span>解説が、直す前の選択肢「{stale[0]}」を引いたままです。選択肢に合わせて解説も直してください。</span>
             </p>
           )}
-          <label className="block">
-            <span className="flex flex-wrap items-baseline justify-between gap-x-3">
-              <span className="label">根拠となる資料の文（一字一句そのまま写す）</span>
+          {/* 「資料を開く」は入力欄の名前（label）の外に置く。中にあると、見出しの文字を押しただけで資料の小窓が開いてしまう */}
+          <div>
+            <div className="flex flex-wrap items-baseline justify-between gap-x-3">
+              <label htmlFor={`${radioName}-quote`} className="label">
+                根拠となる資料の文（一字一句そのまま写す）
+              </label>
               <button type="button" className="inline-flex items-center gap-1 text-xs font-bold text-brand underline decoration-1 underline-offset-4" onClick={() => setShowMaterial(true)}>
                 <Icon name="doc" className="size-3.5" />
                 資料を開く
               </button>
-            </span>
-            <textarea className={`${field} mt-1 h-20 bg-paper`} value={d.quote} maxLength={200} onChange={(e) => setD({ ...d, quote: e.target.value })} />
-          </label>
+            </div>
+            <textarea id={`${radioName}-quote`} className={`${field} mt-1 h-20 bg-paper`} value={d.quote} maxLength={200} onChange={(e) => setD({ ...d, quote: e.target.value })} />
+          </div>
           <p className={cx("-mt-2 flex items-center gap-1 text-xs font-bold", check.quote.found ? "text-good" : "text-bad")} aria-live="polite">
             <Icon name={check.quote.found ? "check" : "alert"} className="size-4" />
             {check.quote.found ? "資料の中にこの文があります" : "この文は資料の中に見つかりません"}

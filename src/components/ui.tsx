@@ -2,7 +2,7 @@
 
 "use client";
 
-import { useEffect, useId, useRef } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import type { AiSource } from "@/lib/types";
 
 export function cx(...c: (string | false | null | undefined)[]): string {
@@ -130,6 +130,11 @@ export function ChoiceMark({ mark, tone = "plain" }: { mark: string; tone?: "pla
   );
 }
 
+/** いま開いている小窓（後から開いたものが最後）。Escキーは一番上の1枚だけが受け取り、
+ *  後ろの画面のスクロール止めは、最初の1枚が開いたときに付け・最後の1枚が閉じたときに外す */
+const openModals: object[] = [];
+let overflowBefore = "";
+
 /** 画面の上に重ねて出す小窓。外側を押す・「閉じる」・Escキーで閉じる。
  *  開いたら小窓の中にフォーカスを移し、閉じたら開く前の場所に戻す（キーボードで迷わないように） */
 export function Modal({ title, onClose, children, wide }: { title: React.ReactNode; onClose: () => void; children: React.ReactNode; wide?: boolean }) {
@@ -140,10 +145,21 @@ export function Modal({ title, onClose, children, wide }: { title: React.ReactNo
     closeRef.current = onClose;
   });
   useEffect(() => {
+    const me = {};
     const before = document.activeElement as HTMLElement | null;
+    if (openModals.length === 0) {
+      overflowBefore = document.body.style.overflow;
+      document.body.style.overflow = "hidden";
+    }
+    openModals.push(me);
     panelRef.current?.focus({ preventScroll: true });
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") closeRef.current();
+      // 小窓を重ねているときは、一番上の1枚だけが反応する（Esc 1回で1枚ずつ閉じる）
+      if (openModals[openModals.length - 1] !== me) return;
+      if (e.key === "Escape") {
+        e.preventDefault();
+        closeRef.current();
+      }
       // Tab で小窓の外へ出ないようにする
       if (e.key === "Tab" && panelRef.current) {
         const items = panelRef.current.querySelectorAll<HTMLElement>("button, a[href], input, select, textarea, summary, [tabindex]:not([tabindex='-1'])");
@@ -160,11 +176,11 @@ export function Modal({ title, onClose, children, wide }: { title: React.ReactNo
       }
     };
     document.addEventListener("keydown", onKey);
-    const overflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
     return () => {
       document.removeEventListener("keydown", onKey);
-      document.body.style.overflow = overflow;
+      const i = openModals.indexOf(me);
+      if (i >= 0) openModals.splice(i, 1);
+      if (openModals.length === 0) document.body.style.overflow = overflowBefore;
       before?.focus?.({ preventScroll: true });
     };
   }, []);
@@ -192,6 +208,33 @@ export function Modal({ title, onClose, children, wide }: { title: React.ReactNo
       </div>
     </div>
   );
+}
+
+type ConfirmOptions = { title: string; ok: string; danger?: boolean };
+
+/** 「よろしいですか？」の確認を、ブラウザ標準の confirm ではなくアプリの小窓で出す。
+ *  const [ask, confirmDialog] = useConfirm(); … if (!(await ask("本文", { title, ok }))) return; と書き、confirmDialog を画面に置く */
+export function useConfirm(): [(message: string, opts: ConfirmOptions) => Promise<boolean>, React.ReactNode] {
+  const [req, setReq] = useState<(ConfirmOptions & { message: string; resolve: (v: boolean) => void }) | null>(null);
+  const ask = useCallback((message: string, opts: ConfirmOptions) => new Promise<boolean>((resolve) => setReq({ ...opts, message, resolve })), []);
+  const answer = (v: boolean) => {
+    req?.resolve(v);
+    setReq(null);
+  };
+  const dialog = req && (
+    <Modal title={req.title} onClose={() => answer(false)}>
+      <p className="text-sm leading-relaxed text-ink-soft">{req.message}</p>
+      <div className="mt-5 flex flex-wrap justify-end gap-2">
+        <button type="button" className={btn.secondary} onClick={() => answer(false)}>
+          やめておく
+        </button>
+        <button type="button" className={req.danger ? btn.danger : btn.primary} onClick={() => answer(true)}>
+          {req.ok}
+        </button>
+      </div>
+    </Modal>
+  );
+  return [ask, dialog];
 }
 
 /** 横棒（割合）。値の文字は棒の外に書く。mark を渡すとその位置に基準線を引く */

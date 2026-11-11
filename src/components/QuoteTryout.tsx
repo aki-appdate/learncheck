@@ -2,7 +2,7 @@
 
 import { useId, useState } from "react";
 import { findQuote } from "@/lib/quote";
-import { CHOICE_MARKS } from "@/lib/quality";
+import { CHOICE_MARKS, sharesWord } from "@/lib/quality";
 import { MaterialExcerpt, MaterialFull } from "./MaterialExcerpt";
 import { Badge, btn, ChoiceMark, cx, Icon, Modal, QNo, Seal } from "./ui";
 
@@ -52,6 +52,8 @@ export function QuoteTryout({ sample }: { sample: Sample }) {
   // 短すぎる・空のときは「見つからない」とは言わない（照らし合わせ自体をしていないため）
   const notChecked = !match.found && match.reason !== "not_found";
   const q = sample.question;
+  // 本物の確認画面（checkQuestion）と同じ注意：資料にある文でも、正解の言葉が1つも出てこなければ確かめてもらう
+  const unrelated = found && !sharesWord(q.choices[q.answerIndex], text);
 
   const choose = (i: number) => {
     setPicked(i);
@@ -177,8 +179,12 @@ export function QuoteTryout({ sample }: { sample: Sample }) {
               <Icon name={found ? "check" : "lock"} className="size-4" />
               採用
             </button>
-            <span className={cx("text-xs leading-relaxed", found ? "text-ink-soft" : "text-bad")}>
-              {found ? "根拠が資料と一致しました。押すと、採用の印が付きます。" : "根拠が資料で確かめられないため、このままでは採用できません。"}
+            <span className={cx("text-xs leading-relaxed", !found ? "text-bad" : unrelated ? "font-bold text-warn" : "text-ink-soft")} aria-live="polite">
+              {!found
+                ? "根拠が資料で確かめられないため、このままでは採用できません。"
+                : unrelated
+                  ? "資料にある文ですが、正解の選択肢の言葉が出てきません。正解の根拠になっているか確かめてから採用してください。"
+                  : "根拠が資料と一致しました。押すと、採用の印が付きます。"}
             </span>
           </>
         )}

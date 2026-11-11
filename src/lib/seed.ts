@@ -46,7 +46,20 @@ type QDef = {
   dept?: Record<string, number>;
 };
 
-const PRIVACY_QS: QDef[] = [
+/** 正解の選択肢を target の位置へ入れ替える（仕込みの誤答の位置も合わせて動かす）。
+ *  見本のテストで正解がBとCに偏らないように、並びをここで決める。数字が順に並ぶ選択肢は、その順を崩さないよう元の位置のまま */
+function arrange<T extends Omit<QDef, "p">>(defs: T[], targets: number[]): T[] {
+  return defs.map((d, i) => {
+    const to = targets[i];
+    if (to === d.answer) return d;
+    const choices = [...d.choices];
+    [choices[d.answer], choices[to]] = [choices[to], choices[d.answer]];
+    const move = (c: number) => (c === to ? d.answer : c === d.answer ? to : c);
+    return { ...d, choices, answer: to, trap: d.trap ? { ...d.trap, choice: move(d.trap.choice) } : d.trap };
+  });
+}
+
+const PRIVACY_QS = arrange<QDef>([
   {
     prompt: "名刺の扱いとして、資料の内容に合っているものはどれですか。",
     choices: [
@@ -181,9 +194,9 @@ const PRIVACY_QS: QDef[] = [
     trap: { choice: 0, weight: 4 },
     dept: { "カスタマーサポート": -0.6 },
   },
-];
+], [3, 2, 0, 1, 3, 0, 2, 1, 0, 3]);
 
-const SECURITY_QS: QDef[] = [
+const SECURITY_QS = arrange<QDef>([
   {
     prompt: "パスワードの長さについて、資料で決められた最低の長さはどれですか。",
     choices: ["8文字以上", "10文字以上", "12文字以上", "16文字以上"],
@@ -283,7 +296,7 @@ const SECURITY_QS: QDef[] = [
     p: 0.78,
     trap: { choice: 0, weight: 3 },
   },
-];
+], [2, 0, 3, 1, 3, 0, 2, 1]);
 
 /** 下書きの例：AIが作った問題に「資料にない根拠」や「重複した選択肢」がまじっていた場合を体験できるようにする */
 const HARASSMENT_DRAFT: Omit<QDef, "p">[] = [

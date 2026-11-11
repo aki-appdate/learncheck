@@ -4,12 +4,13 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useState } from "react";
 import { useApp } from "./AppProvider";
-import { AiSourceBadge, cx, Icon, LogoMark } from "./ui";
+import { AiSourceBadge, cx, Icon, LogoMark, useConfirm } from "./ui";
 
 export function Header() {
   const { people, me, setMe, aiSource, storeKind, resetDemo } = useApp();
   const path = usePathname();
   const router = useRouter();
+  const [ask, confirmDialog] = useConfirm();
   const [resetting, setResetting] = useState(false);
 
   const isTrainer = me?.role === "trainer";
@@ -24,6 +25,9 @@ export function Header() {
   const learners = people.filter((p) => p.role === "learner");
 
   return (
+    <>
+      {/* 確認の小窓はヘッダーの外に置く（ヘッダーの重なり順に閉じ込められないように） */}
+      {confirmDialog}
     <header className="top-0 z-20 border-b border-line bg-surface lg:sticky">
       <div className="mx-auto grid max-w-7xl grid-cols-[1fr_auto] items-center gap-x-6 px-4 lg:flex lg:h-14 lg:px-6">
         <Link href="/" className="flex h-12 items-center gap-2.5 text-ink lg:h-auto" aria-label="LearnCheck トップへ">
@@ -37,7 +41,7 @@ export function Header() {
           disabled={resetting}
           title={storeKind === "firestore" ? "あなた専用のお試しデータを初期状態に戻します" : "このブラウザのお試しデータを初期状態に戻します"}
           onClick={async () => {
-            if (!confirm("作ったテストや受講結果を消して、お試しデータを最初の状態に戻しますか？")) return;
+            if (!(await ask("作ったテストや受講結果を消して、お試しデータを最初の状態に戻します。", { title: "データを初期化しますか？", ok: "初期化する", danger: true }))) return;
             setResetting(true);
             await resetDemo();
             setResetting(false);
@@ -105,5 +109,6 @@ export function Header() {
         デモ版です。<span className="hidden sm:inline">会社・人名・部署・研修資料などの</span>データはすべて架空です。
       </p>
     </header>
+    </>
   );
 }

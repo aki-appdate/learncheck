@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { useApp } from "../AppProvider";
 import { MaterialExcerpt } from "../MaterialExcerpt";
-import { AiSourceBadge, Badge, btn, Card, cx, Icon, QNo } from "../ui";
+import { AiSourceBadge, Badge, btn, Card, cx, Icon, QNo, useConfirm } from "../ui";
 import { QuestionReviewCard } from "./QuestionReviewCard";
 import { generateQuiz } from "@/lib/ai";
 import { formatDateTimeJa } from "@/lib/dates";
@@ -20,6 +20,7 @@ export function TestEditor({ test, onDeleted }: { test: Test; onDeleted: () => v
 }
 
 function DraftEditor({ test, onDeleted }: { test: Test; onDeleted: () => void }) {
+  const [ask, confirmDialog] = useConfirm();
   const { saveTest, deleteTest } = useApp();
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -50,7 +51,7 @@ function DraftEditor({ test, onDeleted }: { test: Test; onDeleted: () => void })
   const blockers = publishBlockers(test.questions, test.material.body);
 
   async function publish() {
-    if (!confirm(`採用した${counts.approved}問で公開します。公開したあとは問題を変更できません。よろしいですか？`)) return;
+    if (!(await ask(`採用した${counts.approved}問で公開します。公開したあとは問題を変更できません。`, { title: "テストを公開しますか？", ok: "公開する" }))) return;
     await update({
       ...test,
       title: title.trim() || test.title,
@@ -66,7 +67,7 @@ function DraftEditor({ test, onDeleted }: { test: Test; onDeleted: () => void })
   /** 同じ資料・問題数・難しさで、別の問題の案を作り直す（見本の返答は作り直し番号で別の文・語句を選ぶ） */
   async function regenerate() {
     if (!gen) return;
-    if (!confirm("今の問題の案と確認の状態を捨てて、別の問題の案を作り直します。よろしいですか？")) return;
+    if (!(await ask("今の問題の案と確認の状態を捨てて、同じ資料から別の問題の案を作り直します。", { title: "問題の案を作り直しますか？", ok: "作り直す", danger: true }))) return;
     setRegenerating(true);
     setError(null);
     try {
@@ -105,6 +106,7 @@ function DraftEditor({ test, onDeleted }: { test: Test; onDeleted: () => void })
 
   return (
     <div className="space-y-5">
+      {confirmDialog}
       <Card>
         <div className="space-y-4 px-5 py-5 sm:px-6">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs text-ink-muted">
@@ -185,7 +187,7 @@ function DraftEditor({ test, onDeleted }: { test: Test; onDeleted: () => void })
                 className={btn.ghost}
                 disabled={saving}
                 onClick={async () => {
-                  if (!confirm("この下書きを削除しますか？")) return;
+                  if (!(await ask("この下書きと、確認した内容をすべて削除します。元には戻せません。", { title: "下書きを削除しますか？", ok: "削除する", danger: true }))) return;
                   await deleteTest(test.id);
                   onDeleted();
                 }}
