@@ -138,6 +138,17 @@ export default function Home() {
                 </div>
               ))}
             </dl>
+            <p className="mt-2 border-t border-line pt-4 text-sm text-ink-soft">
+              ソースコード・設計の説明・テストは GitHub で公開しています：
+              <a
+                className="ml-1 font-bold text-brand underline decoration-1 underline-offset-4 hover:text-brand-strong [overflow-wrap:anywhere]"
+                href="https://github.com/aki-appdate/learncheck"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                github.com/aki-appdate/learncheck
+              </a>
+            </p>
           </div>
         </section>
       </main>
