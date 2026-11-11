@@ -22,11 +22,18 @@ export function TakeTest({ test, onExit }: { test: Test; onExit: () => void }) {
 
   const resultRef = useRef<HTMLDivElement>(null);
 
-  // 答えたら、正誤・解説・根拠が見える位置まで送る（スマホでは選択肢の下に隠れて見えないため）
+  // 答えたら、正誤・解説が見える位置まで送る（スマホでは選択肢の下に隠れて見えないため）。
+  // 画面の一番上まで送ると、選んだ選択肢が見えなくなり唐突なので、正誤の行が画面の上から3分の1あたりに来るところで止める。
+  // すでに画面の上半分に見えているときは動かさない
   useEffect(() => {
     if (!revealed) return;
+    const el = resultRef.current;
+    if (!el) return;
+    const top = el.getBoundingClientRect().top;
+    const vh = window.innerHeight;
+    if (top < vh * 0.55) return;
     const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    resultRef.current?.scrollIntoView({ block: "start", behavior: reduce ? "auto" : "smooth" });
+    window.scrollBy({ top: top - vh * 0.3, behavior: reduce ? "auto" : "smooth" });
   }, [revealed, index]);
 
   const q = test.questions[index];
@@ -149,7 +156,7 @@ export function TakeTest({ test, onExit }: { test: Test; onExit: () => void }) {
             </button>
           </div>
         ) : (
-          <div ref={resultRef} className="mt-6 scroll-mt-4 space-y-4 lg:scroll-mt-20" aria-live="polite">
+          <div ref={resultRef} className="mt-6 space-y-4" aria-live="polite">
             <p className={cx("flex items-center gap-2 border-l-4 px-4 py-3 text-lg font-bold", correct ? "border-good bg-good-soft text-good" : "border-bad bg-bad-soft text-bad")}>
               <span className="text-2xl leading-none" aria-hidden>
                 {correct ? "○" : "×"}

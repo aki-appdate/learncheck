@@ -10,6 +10,17 @@ export const DEPT_GAP = 0.3;
 /** 部署ごとの比較は、これ以上の人数が答えた場合だけ行う（1〜2人の結果だけで部署の傾向とは言えないため） */
 export const DEPT_MIN_LEARNERS = 3;
 
+/** 傾向を言うのに必要な受講者の数。これより少ないと、1人の答えで正答率が0%にも100%にもなってしまう */
+export const MIN_LEARNERS = 3;
+
+/**
+ * 「要フォロー」の問題か。答えた人が MIN_LEARNERS 人に満たないうちは、正答率が低くても判断しない
+ * （結果画面の数・各問題の印・フォロー研修の提案で、同じ基準を使う）
+ */
+export function needsFollowUp(q: { answered: number; correctRate: number }): boolean {
+  return q.answered >= MIN_LEARNERS && q.correctRate < LOW_RATE;
+}
+
 /** 割合を「67%」のように書く（画面・AIへの指示文・見本の返答で共通） */
 export function pct(n: number): string {
   return `${Math.round(n * 100)}%`;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computeTestStats, latestByLearner, pct, scoreAttempt, targetLearners } from "./analytics";
+import { computeTestStats, latestByLearner, LOW_RATE, MIN_LEARNERS, needsFollowUp, pct, scoreAttempt, targetLearners } from "./analytics";
 import type { Attempt, Person, Test, TestQuestion } from "./types";
 
 const q = (id: string, answerIndex: number): TestQuestion => ({
@@ -145,6 +145,35 @@ describe("departmentGaps（部署×問題で、全体より大きく低い問題
   it("答えた人が少ない部署（2人以下）は、偶然の可能性があるので挙げない", () => {
     const few = computeTestStats(TEST, attempts.filter((a) => a.learnerId !== "f"), people);
     expect(few.departmentGaps).toEqual([]);
+  });
+});
+
+describe("needsFollowUp（要フォローの問題か：3回目のチェックの指摘）", () => {
+  it("受講者が3人未満のうちは、正答率が0%でも要フォローにしない", () => {
+    // 1人：q2を間違えて正答率0%
+    const one = computeTestStats(TEST, [att("1", "a", [0, 3], "2026-11-02T00:00:00Z")], PEOPLE);
+    expect(one.questions[1].correctRate).toBe(0);
+    expect(one.questions.filter(needsFollowUp)).toEqual([]);
+    // 2人：2人ともq2を間違えても、まだ判断しない
+    const two = computeTestStats(
+      TEST,
+      [att("1", "a", [0, 3], "2026-11-02T00:00:00Z"), att("2", "b", [0, 3], "2026-11-02T00:00:00Z")],
+      PEOPLE,
+    );
+    expect(two.learnerCount).toBeLessThan(MIN_LEARNERS);
+    expect(two.questions.filter(needsFollowUp)).toEqual([]);
+  });
+
+  it("3人以上になったら、正答率60%未満の問題を要フォローにする（60%ちょうどは含めない）", () => {
+    const three = computeTestStats(
+      TEST,
+      [att("1", "a", [0, 1], "2026-11-02T00:00:00Z"), att("2", "b", [0, 3], "2026-11-02T00:00:00Z"), att("3", "c", [2, 3], "2026-11-02T00:00:00Z")],
+      PEOPLE,
+    );
+    expect(three.questions.filter(needsFollowUp).map((q) => q.questionId)).toEqual(["q2"]);
+    expect(needsFollowUp({ answered: 5, correctRate: LOW_RATE })).toBe(false);
+    expect(needsFollowUp({ answered: 5, correctRate: 0.59 })).toBe(true);
+    expect(needsFollowUp({ answered: 0, correctRate: 0 })).toBe(false);
   });
 });
 

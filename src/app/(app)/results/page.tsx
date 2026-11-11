@@ -6,7 +6,7 @@ import { RoleGate } from "@/components/RoleGate";
 import { FollowUpPanel } from "@/components/results/FollowUpPanel";
 import { QuestionDetail } from "@/components/results/QuestionDetail";
 import { cx, Icon, PageHead, QNo, RateBar } from "@/components/ui";
-import { computeTestStats, LOW_RATE, pct } from "@/lib/analytics";
+import { computeTestStats, LOW_RATE, MIN_LEARNERS, needsFollowUp, pct } from "@/lib/analytics";
 import { formatDateJa } from "@/lib/dates";
 import { CHOICE_MARKS } from "@/lib/quality";
 
@@ -37,10 +37,13 @@ function Results() {
   }
 
   const person = (id: string) => people.find((p) => p.id === id);
-  const lowCount = stats.questions.filter((q) => q.answered > 0 && q.correctRate < LOW_RATE).length;
+  const lowCount = stats.questions.filter(needsFollowUp).length;
   const openStat = openQ ? stats.questions.find((q) => q.questionId === openQ) : undefined;
   const qNo = (id: string) => test.questions.findIndex((q) => q.id === id) + 1;
   const has = stats.learnerCount > 0;
+  // 受講者が3人未満のうちは、正答率が低くても「要フォロー」とは判断しない（フォロー研修の提案と同じ基準）
+  const tooFew = has && stats.learnerCount < MIN_LEARNERS;
+  const judged = has && !tooFew;
 
   return (
     <div className="space-y-8">
@@ -99,14 +102,16 @@ function Results() {
           </p>
           <p className="mt-2 text-xs text-ink-muted">全{test.questions.length}問正解</p>
         </div>
-        <div className={cx("px-5 py-4", has && lowCount ? "bg-bad-soft" : "bg-surface")}>
+        <div className={cx("px-5 py-4", judged && lowCount ? "bg-bad-soft" : "bg-surface")}>
           <p className="label">要フォローの問題</p>
-          <p className={cx("mt-1 flex items-center gap-1.5 text-[26px] font-bold leading-tight", has && lowCount ? "text-bad" : undefined)}>
-            {has && lowCount > 0 && <Icon name="alert" className="size-5" />}
-            {has ? lowCount : "—"}
-            {has && <span className="text-sm font-normal">問</span>}
+          <p className={cx("mt-1 flex items-center gap-1.5 text-[26px] font-bold leading-tight", judged && lowCount ? "text-bad" : undefined)}>
+            {judged && lowCount > 0 && <Icon name="alert" className="size-5" />}
+            {judged ? lowCount : "—"}
+            {judged && <span className="text-sm font-normal">問</span>}
           </p>
-          <p className="mt-2 text-xs text-ink-muted">正答率{pct(LOW_RATE)}未満</p>
+          <p className="mt-2 text-xs text-ink-muted">
+            {tooFew ? `受講者が少ないため、まだ判断しません（${MIN_LEARNERS}人から）` : `正答率${pct(LOW_RATE)}未満`}
+          </p>
         </div>
       </section>
 
@@ -118,14 +123,19 @@ function Results() {
           <h2 className="text-lg font-bold">問題ごとの正答率</h2>
           <p className="flex items-center gap-2 text-xs text-ink-muted">
             <span className="inline-block h-3 w-px bg-ink-muted" aria-hidden />
-            縦線＝{pct(LOW_RATE)}。下回る問題は「要フォロー」。押すと選択肢ごとの人数
+            縦線＝{pct(LOW_RATE)}。{MIN_LEARNERS}人以上が受けて下回る問題は「要フォロー」。押すと選択肢ごとの人数
           </p>
         </div>
         {!has && <p className="border-b border-line py-4 text-sm text-ink-muted">まだ受講者がいません。受講者が受けると、ここに問題ごとの正答率が出ます。</p>}
+        {tooFew && (
+          <p className="border-b border-line py-3 text-sm text-ink-muted">
+            受講したのはまだ{stats.learnerCount}人です。受講者が少ないため、まだ「要フォロー」かどうかは判断しません（{MIN_LEARNERS}人以上で判断します）。
+          </p>
+        )}
         <ul className="divide-y divide-line border-b border-line">
           {stats.questions.map((s) => {
             const q = test.questions[s.index];
-            const low = s.answered > 0 && s.correctRate < LOW_RATE;
+            const low = needsFollowUp(s);
             return (
               <li key={s.questionId}>
                 <button

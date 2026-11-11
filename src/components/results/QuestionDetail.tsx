@@ -2,7 +2,7 @@
 
 import { MaterialExcerpt } from "../MaterialExcerpt";
 import { Badge, btn, ChoiceMark, cx, Modal } from "../ui";
-import { LOW_RATE, pct, type QuestionStat } from "@/lib/analytics";
+import { MIN_LEARNERS, needsFollowUp, pct, type QuestionStat } from "@/lib/analytics";
 import { CHOICE_MARKS } from "@/lib/quality";
 import type { Test } from "@/lib/types";
 
@@ -10,7 +10,8 @@ import type { Test } from "@/lib/types";
 export function QuestionDetail({ test, stat, onClose }: { test: Test; stat: QuestionStat; onClose: () => void }) {
   const q = test.questions[stat.index];
   const max = Math.max(1, ...stat.choiceCounts);
-  const low = stat.answered > 0 && stat.correctRate < LOW_RATE;
+  const low = needsFollowUp(stat);
+  const tooFew = stat.answered > 0 && stat.answered < MIN_LEARNERS;
   return (
     <Modal title={`第${stat.index + 1}問の結果`} onClose={onClose} wide>
       <div className="space-y-5">
@@ -22,6 +23,7 @@ export function QuestionDetail({ test, stat, onClose }: { test: Test; stat: Ques
           <p className="pb-1 text-sm text-ink-soft">
             {stat.answered ? `${stat.answered}人中 ${stat.correct}人が正解` : "まだ受講者がいません"}
             {low && <span className="ml-2 font-bold text-bad">要フォロー</span>}
+            {tooFew && <span className="ml-2 text-ink-muted">（受講者が少ないため、要フォローかどうかはまだ判断しません）</span>}
           </p>
           {q.edited && (
             <span className="pb-1">

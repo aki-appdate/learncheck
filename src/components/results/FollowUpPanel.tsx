@@ -5,7 +5,7 @@ import { useApp } from "../AppProvider";
 import { AiSourceBadge, btn, cx, Icon } from "../ui";
 import { suggestFollowUp, type AiResult } from "@/lib/ai";
 import type { TestStats } from "@/lib/analytics";
-import { MIN_LEARNERS } from "@/lib/ai/sample";
+import { MIN_LEARNERS } from "@/lib/analytics";
 import type { FollowUpInsight, Test } from "@/lib/types";
 
 export function FollowUpPanel({ test, stats, onOpenQuestion }: { test: Test; stats: TestStats; onOpenQuestion: (questionId: string) => void }) {
