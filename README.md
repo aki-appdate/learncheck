@@ -2,6 +2,8 @@
 
 [![CI](https://github.com/aki-appdate/learncheck/actions/workflows/ci.yml/badge.svg)](https://github.com/aki-appdate/learncheck/actions/workflows/ci.yml)
 
+**デモ：** https://learncheck-two.vercel.app （ログイン不要。公開中のデモは Firebase につないでいないため、AIの部分は見本の返答で動きます）
+
 研修資料から**AIが確認テストの案を作り**、研修担当が**1問ずつ確認してから公開**。受講結果から**伝わっていない所とフォロー研修の案**を出すWebアプリです。
 社内研修の「やりっぱなし（受けたかどうかしか分からない）」を減らすことを目的に、Claude Code を使って設計・実装しました。
 
@@ -65,6 +67,7 @@
 | AI | Firebase AI Logic + Gemini（Gemini Developer API の無料枠・Spark プラン） |
 | セキュリティ | Firestore セキュリティルール（[firestore.rules](firestore.rules)：自分のデータだけ読み書きでき、項目の名前・型・文字数や件数の上限を確かめる。配列の中身1つずつまでは確かめられない）、App Check（reCAPTCHA v3） |
 | 品質 | Vitest（単体テスト）、ESLint、GitHub Actions の設定（lint・型・テスト・ビルド） |
+| 公開 | Vercel（https://learncheck-two.vercel.app） |
 
 ```
 src/
@@ -91,7 +94,7 @@ src/
 
 ## ソースコード
 
-https://github.com/aki-appdate/learncheck （このリポジトリ）。姉妹アプリは [CallNote](https://github.com/aki-appdate/callnote)（テレアポチーム向け）と [ReplyDesk](https://github.com/aki-appdate/replydesk)（問い合わせ対応向け）です。
+https://github.com/aki-appdate/learncheck （このリポジトリ）。姉妹アプリは [CallNote](https://github.com/aki-appdate/callnote)（テレアポチーム向け）と [ReplyDesk](https://github.com/aki-appdate/replydesk)（問い合わせ対応向け）です。デモはそれぞれ https://callnote-sigma.vercel.app と https://replydesk-iota.vercel.app です。
 
 ## 手元で動かす
 
